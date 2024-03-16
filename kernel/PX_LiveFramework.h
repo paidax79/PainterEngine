@@ -6,6 +6,7 @@
 #define PX_LIVEFRAMEWORK_MAX_SUPPORT_LAYER 256
 #define PX_LIVE_ID_MAX_LEN 32
 #define PX_LIVE_LAYER_MAX_LINK_NODE 16
+#define PX_LIVE_VERSION 0x00000001
 typedef enum
 {
 	PX_LIVE_ANIMATION_FRAME_OPCODE_STAMP=0,
@@ -254,6 +255,7 @@ px_bool PX_LiveCreate(px_memorypool *mp,PX_LiveFramework *pLiveFramework,PX_Live
 px_void PX_LiveFree(PX_Live *pLive);
 
 px_void PX_LivePlay(PX_Live*plive);
+px_int PX_LiveGetAnimationCount(PX_Live *plive);
 px_bool PX_LivePlayAnimation(PX_Live *plive,px_int index);
 px_bool PX_LivePlayAnimationByName(PX_Live *plive,const px_char name[]);
 px_void PX_LivePause(PX_Live *plive);

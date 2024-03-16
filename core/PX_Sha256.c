@@ -90,7 +90,7 @@ static const px_uint32 K[64] = {
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 static
 void
-    TransformFunction
+    PX_TransformFunction
     (
         PX_Sha256Context*      Context,
         px_uchar const*      Buffer
@@ -101,7 +101,7 @@ void
     px_uint32    t0;
     px_uint32    t1;
     px_uint32    t;
-    int         i;
+    px_int         i;
 
     // Copy state into S
     for( i=0; i<8; i++ )
@@ -195,7 +195,7 @@ void
     {
         if( Context->curlen == 0 && BufferSize >= BLOCK_SIZE )
         {
-           TransformFunction( Context, (px_uchar*)Buffer );
+           PX_TransformFunction( Context, (px_uchar*)Buffer );
            Context->length += BLOCK_SIZE * 8;
            Buffer = (px_uchar*)Buffer + BLOCK_SIZE;
            BufferSize -= BLOCK_SIZE;
@@ -209,7 +209,7 @@ void
            BufferSize -= n;
            if( Context->curlen == BLOCK_SIZE )
            {
-              TransformFunction( Context, Context->buf );
+              PX_TransformFunction( Context, Context->buf );
               Context->length += 8*BLOCK_SIZE;
               Context->curlen = 0;
            }
@@ -230,7 +230,7 @@ void
         PX_SHA256_HASH*        Digest          // [out]
     )
 {
-    int i;
+    px_int i;
 
     if( Context->curlen >= sizeof(Context->buf) )
     {
@@ -252,7 +252,7 @@ void
         {
             Context->buf[Context->curlen++] = (px_uchar)0;
         }
-        TransformFunction(Context, Context->buf);
+        PX_TransformFunction(Context, Context->buf);
         Context->curlen = 0;
     }
 
@@ -264,7 +264,7 @@ void
 
     // Store length
     STORE64H( Context->length, Context->buf+56 );
-    TransformFunction( Context, Context->buf );
+    PX_TransformFunction( Context, Context->buf );
 
     // Copy output
     for( i=0; i<8; i++ )

@@ -1,35 +1,46 @@
 #include "PX_Surface.h"
 
-px_bool PX_SurfaceCreate(px_memorypool *mp,px_uint width,px_uint height,px_surface *surface)
+px_bool PX_SurfaceCreate(px_memorypool *mp,px_int width,px_int height,px_surface *surface)
 {
-	px_void *p=MP_Malloc(mp,height*width*sizeof(px_color));
-	if (p!=PX_NULL)
+	if (width>0&&height>0)
 	{
-		surface->height=height;
-		surface->width=width;
-		surface->surfaceBuffer=(px_color *)p;
-		surface->MP=mp;
-		surface->limit_left=0;
-		surface->limit_top=0;
-		surface->limit_right=width-1;
-		surface->limit_bottom=height-1;
-		PX_memdwordset(p,0,height*width);
-		return PX_TRUE;
+		px_void* p = MP_Malloc(mp, height * width * sizeof(px_color));
+		if (p != PX_NULL)
+		{
+			surface->height = height;
+			surface->width = width;
+			surface->surfaceBuffer = (px_color*)p;
+			surface->MP = mp;
+			surface->limit_left = 0;
+			surface->limit_top = 0;
+			surface->limit_right = width - 1;
+			surface->limit_bottom = height - 1;
+			PX_memdwordset(p, 0, height * width);
+			return PX_TRUE;
+		}
 	}
+	
 	return PX_FALSE;
+}
+
+px_void PX_SurfaceUnlimit(px_surface* psurface)
+{
+	psurface->limit_left = 0;
+	psurface->limit_top = 0;
+	psurface->limit_right = psurface->width - 1;
+	psurface->limit_bottom = psurface->height - 1;
 }
 
 px_void PX_SurfaceFree(px_surface *psurface)
 {
-	if (psurface->surfaceBuffer==PX_NULL)
+	if (psurface->surfaceBuffer==PX_NULL|| psurface->MP==PX_NULL)
 	{
+		PX_ASSERT();
 		return;
 	}
 	MP_Free(psurface->MP,psurface->surfaceBuffer);
-	psurface->surfaceBuffer=PX_NULL;
-	psurface->MP=0;
-	psurface->height=0;
-	psurface->width=0;
+	PX_memset(psurface, 0, sizeof(px_surface));
+
 }
 
 
@@ -95,29 +106,46 @@ px_void PX_SurfaceSetPixel(px_surface *psurface,px_int X,px_int Y,px_color color
 	}
 }
 
-px_void PX_SurfaceDrawPixel(px_surface *psurface,px_int X,px_int Y,px_color COLOR)
+px_void PX_SurfaceDrawPixelWithoutLimit(px_surface* psurface, px_int X, px_int Y, px_color COLOR)
 {
 	px_color c;
-	if (COLOR._argb.a==0)
+#ifdef PX_DEBUG_MODE
+	if (X > psurface->limit_right || X < psurface->limit_left || Y > psurface->limit_bottom || Y < psurface->limit_top)
+	{
+		PX_ASSERT();
+	}
+
+#endif // PX_DEBUG
+
+	
+
+	if (COLOR._argb.a == 0)
 	{
 		return;
 	}
-	if(X<=psurface->limit_right&&X>=psurface->limit_left&&Y<=psurface->limit_bottom&&Y>=psurface->limit_top)
+	if (COLOR._argb.a == 0xff)
 	{
-		if(COLOR._argb.a==0xff)
-		{
-		psurface->surfaceBuffer[X+psurface->width*Y]=COLOR;
-		}
-		else
-		{
-		c=psurface->surfaceBuffer[X+psurface->width*Y];
-		c._argb.r=(px_uchar)(((255-COLOR._argb.a)*c._argb.r+COLOR._argb.r*COLOR._argb.a)/255);
-		c._argb.g=(px_uchar)(((255-COLOR._argb.a)*c._argb.g+COLOR._argb.g*COLOR._argb.a)/255);
-		c._argb.b=(px_uchar)(((255-COLOR._argb.a)*c._argb.b+COLOR._argb.b*COLOR._argb.a)/255);
-		c._argb.a=255-(255-c._argb.a)*(255-COLOR._argb.a)/255;
-		psurface->surfaceBuffer[X+psurface->width*Y]=c;
-		}
+		psurface->surfaceBuffer[X + psurface->width * Y] = COLOR;
 	}
+	else
+	{
+		c = psurface->surfaceBuffer[X + psurface->width * Y];
+		c._argb.r = (px_uchar)(((255 - COLOR._argb.a) * c._argb.r + COLOR._argb.r * COLOR._argb.a) / 255);
+		c._argb.g = (px_uchar)(((255 - COLOR._argb.a) * c._argb.g + COLOR._argb.g * COLOR._argb.a) / 255);
+		c._argb.b = (px_uchar)(((255 - COLOR._argb.a) * c._argb.b + COLOR._argb.b * COLOR._argb.a) / 255);
+		c._argb.a = 255 - (255 - c._argb.a) * (255 - COLOR._argb.a) / 255;
+		psurface->surfaceBuffer[X + psurface->width * Y] = c;
+	}
+
+}
+px_void PX_SurfaceDrawPixel(px_surface *psurface,px_int X,px_int Y,px_color COLOR)
+{
+	if (X > psurface->limit_right || X < psurface->limit_left || Y > psurface->limit_bottom || Y < psurface->limit_top)
+	{
+		return;
+	}
+
+	PX_SurfaceDrawPixelWithoutLimit(psurface, X, Y, COLOR);
 }
 
 px_void PX_SurfaceClear(px_surface *psurface, px_int left, px_int top, px_int right, px_int bottom,px_color color)
@@ -171,4 +199,9 @@ px_void PX_SurfaceClear(px_surface *psurface, px_int left, px_int top, px_int ri
 		PX_memdwordset(psurface->surfaceBuffer+i*psurface->width+left,color._argb.ucolor,right-left+1);
 	}
 	
+}
+
+px_void PX_SurfaceClearAll(px_surface* psurface,px_color color)
+{
+	PX_SurfaceClear(psurface, 0, 0, psurface->width - 1, psurface->height - 1, color);
 }

@@ -1,20 +1,9 @@
 #include "PX_MFCC.h"
 
 
-static px_double PX_HzToMel(px_double  freq)
+void PX_liftwindow(px_double* p, px_int m)
 {
-	return 1127*PX_log(1.0 + freq/700);
-}
-
-static px_double PX_MelToHz(px_double  freq)
-{
-	return  700 * (PX_exp(freq/1127) - 1);
-}
-
-
-void PX_liftwindow(px_double* p, int m)
-{
-	int i;
+	px_int i;
 	px_double  max_value = 0.0f;
 	for(i = 1; i <= m; i++)
 	{

@@ -4,7 +4,7 @@ static px_bool PX_isBigEndianCPU()
 {
 	union{
 		px_dword i;
-		unsigned char s[4];
+		px_uchar s[4];
 	}c;
 	c.i = 0x12345678;
 	return (0x12 == c.s[0]);
@@ -63,8 +63,8 @@ px_float PX_atof(const px_char fstr[])
 	}
 	if (be)
 	{
-		int e=PX_atoi(fstr);
-		float e10=1;
+		px_int e=PX_atoi(fstr);
+		px_float e10=1;
 		if (e>0)
 		{
 			while (e)
@@ -126,7 +126,7 @@ px_void PX_AscToWord(const px_char *asc,px_word *u16)
 	*u16=0;
 }
 
-px_int  PX_ftoa(px_float f, char *outbuf, px_int maxlen, px_int precision)   
+px_int  PX_ftoa(px_float f, px_char *outbuf, px_int maxlen, px_int precision)   
 {  
 	px_int i_value;
 	px_int f_value;
@@ -140,6 +140,14 @@ px_int  PX_ftoa(px_float f, char *outbuf, px_int maxlen, px_int precision)
 	shl=PX_pow_ii(shl,precision);
 	i_value=(px_int)f;
 	f_value=(px_int)PX_ABS(shl*(f-(px_int)f));
+	if (f_value<0)
+	{
+		outbuf[0] = 'N';
+		outbuf[1] = 'a';
+		outbuf[2] = 'N';
+		outbuf[3] = '\0';
+		return 0;
+	}
 	if (i_value==0&&f<0)
 	{
 		outbuf[0]='-';
@@ -343,9 +351,326 @@ px_double PX_fast_exp(px_double x) {
 	return x;
 }
 
+/* PX_pow_dd & PX_scalbn & PX_log function(s)
+ * ====================================================
+ * Copyright (C) 2004 by Sun Microsystems, Inc. All rights reserved.
+ *
+ * Permission to use, copy, modify, and distribute this
+ * software is freely granted, provided that this notice
+ * is preserved.
+ * ====================================================
+ */
+px_double64 PX_copysign(px_double64 x, px_double64 y)
+{
+	*(1 + (px_int32*)&x) = (*(1 + (px_int32*)&x) & 0x7fffffff) | (*(1 + (px_int32*)&y) & 0x80000000);
+	return x;
+}
+
+px_double64 PX_scalbn(px_double64 x, px_double64 n)
+{
+	px_int32  k, hx, lx;
+	static px_double64	two54 = 1.80143985094819840000e+16, /* 0x43500000, 0x00000000 */
+		twom54 = 5.55111512312578270212e-17, /* 0x3C900000, 0x00000000 */
+		huge = 1.0e+300,
+		tiny = 1.0e-300;
+
+	hx = *(1 + (px_int32*)&x);
+	lx = *(px_int32*)&x;
+	k = (hx & 0x7ff00000) >> 20;		/* extract exponent */
+	if (k == 0) {				/* 0 or subnormal x */
+		if ((lx | (hx & 0x7fffffff)) == 0) return x; /* +-0 */
+		x *= two54;
+		hx = *(1 + (px_int32*)&x);
+		k = ((hx & 0x7ff00000) >> 20) - 54;
+		if (n < -50000) return tiny * x; 	/*underflow*/
+	}
+	if (k == 0x7ff) return x + x;		/* NaN or Inf */
+	k = (px_int32)(k + n);
+	if (k > 0x7fe) return huge * PX_copysign(huge, x); /* overflow  */
+	if (k > 0) 				/* normal result */
+	{
+		*(1 + (px_int32*)&x) = (hx & 0x800fffff) | (k << 20); return x;
+	}
+	if (k <= -54)
+	{
+		if (n > 50000) 	/* in case integer overflow in n+k */
+			return huge * PX_copysign(huge, x);	/*overflow*/
+		else
+			return tiny * PX_copysign(tiny, x); 	/*underflow*/
+	}
+	k += 54;				/* subnormal result */
+	*(1 + (px_int32*)&x) = (hx & 0x800fffff) | (k << 20);
+	return x * twom54;
+}
+
+px_double64 __px_pow_dd(px_double64 x, px_double64 y)
+{
+	px_double64 z, ax, z_h, z_l, p_h, p_l;
+	px_double64 y1, t1, t2, r, s, t, u, v, w;
+	px_int32 i0, i1, i, j, k, yisint, n;
+	px_int32 hx, hy, ix, iy;
+	unsigned lx, ly;
+
+	static px_double64 bp[] = { 1.0, 1.5, },
+		dp_h[] = { 0.0, 5.84962487220764160156e-01, }, /* 0x3FE2B803, 0x40000000 */
+		dp_l[] = { 0.0, 1.35003920212974897128e-08, }, /* 0x3E4CFDEB, 0x43CFD006 */
+		zero = 0.0,
+		one = 1.0,
+		two = 2.0,
+		two53 = 9007199254740992.0,	/* 0x43400000, 0x00000000 */
+		huge = 1.0e300,
+		tiny = 1.0e-300,
+		/* poly coefs for (3/2)*(log(x)-2s-2/3*s**3 */
+		L1 = 5.99999999999994648725e-01, /* 0x3FE33333, 0x33333303 */
+		L2 = 4.28571428578550184252e-01, /* 0x3FDB6DB6, 0xDB6FABFF */
+		L3 = 3.33333329818377432918e-01, /* 0x3FD55555, 0x518F264D */
+		L4 = 2.72728123808534006489e-01, /* 0x3FD17460, 0xA91D4101 */
+		L5 = 2.30660745775561754067e-01, /* 0x3FCD864A, 0x93C9DB65 */
+		L6 = 2.06975017800338417784e-01, /* 0x3FCA7E28, 0x4A454EEF */
+		P1 = 1.66666666666666019037e-01, /* 0x3FC55555, 0x5555553E */
+		P2 = -2.77777777770155933842e-03, /* 0xBF66C16C, 0x16BEBD93 */
+		P3 = 6.61375632143793436117e-05, /* 0x3F11566A, 0xAF25DE2C */
+		P4 = -1.65339022054652515390e-06, /* 0xBEBBBD41, 0xC5D26BF1 */
+		P5 = 4.13813679705723846039e-08, /* 0x3E663769, 0x72BEA4D0 */
+		lg2 = 6.93147180559945286227e-01, /* 0x3FE62E42, 0xFEFA39EF */
+		lg2_h = 6.93147182464599609375e-01, /* 0x3FE62E43, 0x00000000 */
+		lg2_l = -1.90465429995776804525e-09, /* 0xBE205C61, 0x0CA86C39 */
+		ovt = 8.0085662595372944372e-0017, /* -(1024-log2(ovfl+.5ulp)) */
+		cp = 9.61796693925975554329e-01, /* 0x3FEEC709, 0xDC3A03FD =2/(3ln2) */
+		cp_h = 9.61796700954437255859e-01, /* 0x3FEEC709, 0xE0000000 =(float)cp */
+		cp_l = -7.02846165095275826516e-09, /* 0xBE3E2FE0, 0x145B01F5 =tail of cp_h*/
+		ivln2 = 1.44269504088896338700e+00, /* 0x3FF71547, 0x652B82FE =1/ln2 */
+		ivln2_h = 1.44269502162933349609e+00, /* 0x3FF71547, 0x60000000 =24b 1/ln2*/
+		ivln2_l = 1.92596299112661746887e-08; /* 0x3E54AE0B, 0xF85DDF44 =1/ln2 tail*/
+
+
+	i0 = ((*(px_int32*)&one) >> 29) ^ 1; i1 = 1 - i0;
+	hx = *(1 + (px_int32*)&x); lx = *(px_int32*)&x;
+	hy = *(1 + (px_int32*)&y); ly = *(px_int32*)&y;
+	ix = hx & 0x7fffffff;  iy = hy & 0x7fffffff;
+
+	/* y==zero: x**0 = 1 */
+	if ((iy | ly) == 0) return one;
+
+	/* +-NaN return x+y */
+	if (ix > 0x7ff00000 || ((ix == 0x7ff00000) && (lx != 0)) ||
+		iy > 0x7ff00000 || ((iy == 0x7ff00000) && (ly != 0)))
+		return x + y;
+
+	/* determine if y is an odd px_int32 when x < 0
+	 * yisint = 0	... y is not an integer
+	 * yisint = 1	... y is an odd px_int32
+	 * yisint = 2	... y is an even px_int32
+	 */
+	yisint = 0;
+	if (hx < 0) {
+		if (iy >= 0x43400000) yisint = 2; /* even integer y */
+		else if (iy >= 0x3ff00000) {
+			k = (iy >> 20) - 0x3ff;	   /* exponent */
+			if (k > 20) {
+				j = ly >> (52 - k);
+				if ((j << (52 - k)) == ly) yisint = 2 - (j & 1);
+			}
+			else if (ly == 0) {
+				j = iy >> (20 - k);
+				if ((j << (20 - k)) == iy) yisint = 2 - (j & 1);
+			}
+		}
+	}
+
+	/* special value of y */
+	if (ly == 0) {
+		if (iy == 0x7ff00000) {	/* y is +-inf */
+			if (((ix - 0x3ff00000) | lx) == 0)
+				return  y - y;	/* inf**+-1 is NaN */
+			else if (ix >= 0x3ff00000)/* (|x|>1)**+-inf = inf,0 */
+				return (hy >= 0) ? y : zero;
+			else			/* (|x|<1)**-,+inf = inf,0 */
+				return (hy < 0) ? -y : zero;
+		}
+		if (iy == 0x3ff00000) {	/* y is  +-1 */
+			if (hy < 0) return one / x; else return x;
+		}
+		if (hy == 0x40000000) return x * x; /* y is  2 */
+		if (hy == 0x3fe00000) {	/* y is  0.5 */
+			if (hx >= 0)	/* x >= +0 */
+				return PX_sqrtd(x);
+		}
+	}
+
+	ax = PX_ABS(x);
+	/* special value of x */
+	if (lx == 0) {
+		if (ix == 0x7ff00000 || ix == 0 || ix == 0x3ff00000) {
+			z = ax;			/*x is +-0,+-inf,+-1*/
+			if (hy < 0) z = one / z;	/* z = (1/|x|) */
+			if (hx < 0) {
+				if (((ix - 0x3ff00000) | yisint) == 0) {
+					z = (z - z) / (z - z); /* (-1)**non-int is NaN */
+				}
+				else if (yisint == 1)
+					z = -z;		/* (x<0)**odd = -(|x|**odd) */
+			}
+			return z;
+		}
+	}
+
+	n = (hx >> 31) + 1;
+
+	/* (x<0)**(non-int) is NaN */
+	if ((n | yisint) == 0) return (x - x) / (x - x);
+
+	s = one; /* s (sign of result -ve**odd) = -1 else = 1 */
+	if ((n | (yisint - 1)) == 0) s = -one;/* (-ve)**(odd int) */
+
+	/* |y| is huge */
+	if (iy > 0x41e00000) { /* if |y| > 2**31 */
+		if (iy > 0x43f00000) {	/* if |y| > 2**64, must o/uflow */
+			if (ix <= 0x3fefffff) return (hy < 0) ? huge  : tiny ;
+			if (ix >= 0x3ff00000) return (hy > 0) ? huge  : tiny ;
+		}
+		/* over/underflow if x is not close to one */
+		if (ix < 0x3fefffff) return (hy < 0) ? s * huge * huge : s * tiny * tiny;
+		if (ix > 0x3ff00000) return (hy > 0) ? s * huge * huge : s * tiny * tiny;
+		/* now |1-x| is tiny <= 2**-20, suffice to compute
+		   log(x) by x-x^2/2+x^3/3-x^4/4 */
+		t = ax - one;		/* t has 20 trailing zeros */
+		w = (t * t) * (0.5 - t * (0.3333333333333333333333 - t * 0.25));
+		u = ivln2_h * t;	/* ivln2_h has 21 sig. bits */
+		v = t * ivln2_l - w * ivln2;
+		t1 = u + v;
+		*(px_int32*)&t1 = 0;
+		t2 = v - (t1 - u);
+	}
+	else {
+		px_double64 ss, s2, s_h, s_l, t_h, t_l;
+		n = 0;
+		/* take care subnormal number */
+		if (ix < 0x00100000)
+		{
+			ax *= two53; n -= 53; ix = *(1 + (px_int32*)&ax);
+		}
+		n += ((ix) >> 20) - 0x3ff;
+		j = ix & 0x000fffff;
+		/* determine interval */
+		ix = j | 0x3ff00000;		/* normalize ix */
+		if (j <= 0x3988E) k = 0;		/* |x|<sqrt(3/2) */
+		else if (j < 0xBB67A) k = 1;	/* |x|<sqrt(3)   */
+		else { k = 0; n += 1; ix -= 0x00100000; }
+		*(1 + (px_int32*)&ax) = ix;
+
+		/* compute ss = s_h+s_l = (x-1)/(x+1) or (x-1.5)/(x+1.5) */
+		u = ax - bp[k];		/* bp[0]=1.0, bp[1]=1.5 */
+		v = one / (ax + bp[k]);
+		ss = u * v;
+		s_h = ss;
+		*(px_int32*)&s_h = 0;
+		/* t_h=ax+bp[k] High */
+		t_h = zero;
+		*(1 + (px_int32*)&t_h) = ((ix >> 1) | 0x20000000) + 0x00080000 + (k << 18);
+		t_l = ax - (t_h - bp[k]);
+		s_l = v * ((u - s_h * t_h) - s_h * t_l);
+		/* compute log(ax) */
+		s2 = ss * ss;
+		r = s2 * s2 * (L1 + s2 * (L2 + s2 * (L3 + s2 * (L4 + s2 * (L5 + s2 * L6)))));
+		r += s_l * (s_h + ss);
+		s2 = s_h * s_h;
+		t_h = 3.0 + s2 + r;
+		*(px_int32*)&t_h = 0;
+		t_l = r - ((t_h - 3.0) - s2);
+		/* u+v = ss*(1+...) */
+		u = s_h * t_h;
+		v = s_l * t_h + t_l * ss;
+		/* 2/(3log2)*(ss+...) */
+		p_h = u + v;
+		*(px_int32*)&p_h = 0;
+		p_l = v - (p_h - u);
+		z_h = cp_h * p_h;		/* cp_h+cp_l = 2/(3*log2) */
+		z_l = cp_l * p_h + p_l * cp + dp_l[k];
+		/* log2(ax) = (ss+..)*2/(3*log2) = n + dp_h + z_h + z_l */
+		t = (px_double64)n;
+		t1 = (((z_h + z_l) + dp_h[k]) + t);
+		*(px_int32*)&t1 = 0;
+		t2 = z_l - (((t1 - t) - dp_h[k]) - z_h);
+	}
+
+	/* split up y into y1+y2 and compute (y1+y2)*(t1+t2) */
+	y1 = y;
+	*(px_int32*)&y1 = 0;
+	p_l = (y - y1) * t1 + y * t2;
+	p_h = y1 * t1;
+	z = p_l + p_h;
+	j = *(1 + (px_int32*)&z);
+	i = *(px_int32*)&z;
+	if (j >= 0x40900000) {				/* z >= 1024 */
+		if (((j - 0x40900000) | i) != 0)			/* if z > 1024 */
+			return s * huge * huge;			/* overflow */
+		else {
+			if (p_l + ovt > z - p_h) return s * huge * huge;	/* overflow */
+		}
+	}
+	else if ((j & 0x7fffffff) >= 0x4090cc00) {	/* z <= -1075 */
+		if (((j - 0xc090cc00) | i) != 0) 		/* z < -1075 */
+			return s * tiny * tiny;		/* underflow */
+		else {
+			if (p_l <= z - p_h) return s * tiny * tiny;	/* underflow */
+		}
+	}
+	/*
+	 * compute 2**(p_h+p_l)
+	 */
+	i = j & 0x7fffffff;
+	k = (i >> 20) - 0x3ff;
+	n = 0;
+	if (i > 0x3fe00000) {		/* if |z| > 0.5, set n = [z+0.5] */
+		n = j + (0x00100000 >> (k + 1));
+		k = ((n & 0x7fffffff) >> 20) - 0x3ff;	/* new k for n */
+		t = zero;
+		*(1 + (px_int32*)&t) = (n & ~(0x000fffff >> k));
+		n = ((n & 0x000fffff) | 0x00100000) >> (20 - k);
+		if (j < 0) n = -n;
+		p_h -= t;
+	}
+	t = p_l + p_h;
+	*(px_int32*)&t = 0;
+	u = t * lg2_h;
+	v = (p_l - (t - p_h)) * lg2 + t * lg2_l;
+	z = u + v;
+	w = v - (z - u);
+	t = z * z;
+	t1 = z - t * (P1 + t * (P2 + t * (P3 + t * (P4 + t * P5))));
+	r = (z * t1) / (t1 - two) - (w + z * w);
+	z = one - (r - z);
+	j = *(1 + (px_int32*)&z);
+	j += (n << 20);
+	if ((j >> 20) <= 0) z = PX_scalbn(z, n);	/* subnormal output */
+	else *(1 + (px_int32*)&z) += (n << 20);
+	return s * z;
+}
+
+px_double PX_floor(px_double num) {
+
+	px_int64 n = (px_int64)num;
+	px_double d = (px_double)n;
+	if (d == num || num >= 0)
+		return d;
+	else
+		return d - 1;
+}
+
+px_int PX_ceil(px_double num) 
+{
+	px_int inum = (px_int)num;
+	if (num == (px_double)inum) 
+	{
+		return inum;
+	}
+	return inum + 1;
+}
+
 px_double PX_exp(px_double x)
 {
-	return PX_pow_dd(PX_e,x);
+	return __px_pow_dd(PX_e, x);
 }
 
 px_double PX_tanh(px_double x)
@@ -414,7 +739,20 @@ px_double PX_sind(px_double x)
 	result+=term;
 	term*=(-x*x)/(32*33);
 	return result;
+}
 
+px_double PX_sinc(px_double i)
+{
+	return i?PX_sind(i * PX_PI) / (i * PX_PI):1;
+}
+
+px_double PX_sinc_interpolate(px_double x[], px_int size, px_double d)
+{
+	px_int i;
+	px_double sum = 0;
+	for (i = 0; i < size; i++)
+		sum += x[i] * PX_sinc(d - i);
+	return sum;
 }
 
 px_double PX_cosd(px_double radian)
@@ -455,13 +793,13 @@ px_float PX_tan_angle(px_float angle)
 	return PX_sin_angle(angle)/PX_cos_angle(angle);
 }
 
-px_float PX_Point_sin(px_point v)
+px_float PX_Point2D_sin(px_point2D v)
 {
 	return v.y/PX_sqrt(v.x*v.x+v.y*v.y);
 }
 
 
-px_float PX_Point_cos(px_point v)
+px_float PX_Point2D_cos(px_point2D v)
 {
 	return v.x/PX_sqrt(v.x*v.x+v.y*v.y);
 }
@@ -469,6 +807,7 @@ px_float PX_Point_cos(px_point v)
 px_void PX_BufferToHexString(px_byte data[],px_int size,px_char hex_str[])
 {
 	px_int i;
+	hex_str[0]=0;
 	for (i=0;i<size;i++)
 	{
 		if (data[i]==0)
@@ -928,10 +1267,16 @@ px_int PX_sprintf8(px_char *_out_str,px_int str_size,const px_char fmt[], px_str
 			switch (pstringfmt.type)
 			{
 			case PX_STRINGFORMAT_TYPE_INT:
-				length+=PX_strlen(PX_itos(pstringfmt._int,10).data);
+			{
+				PX_RETURN_STRING s = PX_itos(pstringfmt._int, 10);
+				length += PX_strlen(s.data);
+			}
 				break;
 			case PX_STRINGFORMAT_TYPE_FLOAT:
-				length+=PX_strlen(PX_ftos(pstringfmt._float,precision).data);
+			{
+				PX_RETURN_STRING s = PX_ftos(pstringfmt._float, precision);
+				length += PX_strlen(s.data);
+			}
 				break;
 			case PX_STRINGFORMAT_TYPE_STRING:
 				length+=PX_strlen(pstringfmt._pstring);
@@ -949,6 +1294,10 @@ px_int PX_sprintf8(px_char *_out_str,px_int str_size,const px_char fmt[], px_str
 		if(*p != '%') {
 			_out_str[length]=*p;
 			length++;
+			if (length >= str_size)
+			{
+				PX_ASSERT();
+			}
 			continue;
 		}
 		switch(*(p+1)) 
@@ -964,6 +1313,10 @@ px_int PX_sprintf8(px_char *_out_str,px_int str_size,const px_char fmt[], px_str
 		default:
 			_out_str[length]=*p;
 			length++;
+			if (length >= str_size)
+			{
+				PX_ASSERT();
+			}
 			continue;
 		}
 
@@ -997,7 +1350,9 @@ px_int PX_sprintf8(px_char *_out_str,px_int str_size,const px_char fmt[], px_str
 				length+=PX_strlen(tret.data);
 			}
 			else
+			{
 				return length;
+			}
 			break;
 		case PX_STRINGFORMAT_TYPE_STRING:
 			if(length+PX_strlen(pstringfmt._pstring)<str_size)
@@ -1006,11 +1361,17 @@ px_int PX_sprintf8(px_char *_out_str,px_int str_size,const px_char fmt[], px_str
 				length+=PX_strlen(pstringfmt._pstring);
 			}
 			else
+			{
 				return length;
+			}
 			break;
 		default:
 			return 0;
 		}
+	}
+	if (length >= str_size)
+	{
+		PX_ASSERT();
 	}
 	return length;
 }
@@ -1062,6 +1423,27 @@ px_int PX_sprintf0(px_char *str,px_int str_size,const px_char fmt[])
 	return PX_sprintf8(str,str_size,fmt,PX_STRINGFORMAT_INT(0),PX_STRINGFORMAT_INT(0),PX_STRINGFORMAT_INT(0),PX_STRINGFORMAT_INT(0),PX_STRINGFORMAT_INT(0),PX_STRINGFORMAT_INT(0),PX_STRINGFORMAT_INT(0),PX_STRINGFORMAT_INT(0));
 }
 
+px_void PX_trim(px_char* str)
+{
+	px_int l=0, r=PX_strlen(str)-1;
+	if (r < 0)return;
+	while (str[l]==' '||str[l]=='\t')
+	{
+		l++;
+	}
+	while (str[r]== ' '|| str[r] == '\t')
+	{
+		r--;
+	}
+	if (l>=r)
+	{
+		str[0] = '\0';
+		return;
+	}
+	PX_memcpy(str, str + l, r - l + 1);
+	str[r - l + 1] = '\0';
+}
+
 void PX_MatrixZero(px_matrix *Mat)
 {
 	Mat->m[0][0]=0;Mat->m[0][1]=0;Mat->m[0][2]=0;Mat->m[0][3]=0;
@@ -1070,7 +1452,7 @@ void PX_MatrixZero(px_matrix *Mat)
 	Mat->m[3][0]=0;Mat->m[3][1]=0;Mat->m[3][2]=0;Mat->m[3][3]=0;
 }
 
-void PX_MatrixIdentity(px_matrix *Mat)
+px_void PX_MatrixIdentity(px_matrix *Mat)
 {
 	Mat->_11=1.0f;	Mat->_12=0.0f;	Mat->_13=0.0f;	Mat->_14=0.0f;
 	Mat->_21=0.0f;	Mat->_22=1.0f;	Mat->_23=0.0f;	Mat->_24=0.0f;
@@ -1315,6 +1697,26 @@ px_color PX_COLOR(px_uchar a,px_uchar r,px_uchar g,px_uchar b)
 	return color;
 }
 
+px_color PX_COLORF(px_float a, px_float r, px_float g, px_float b)
+{
+	px_color color;
+	color._argb.a = (px_uchar)(a*255);
+	color._argb.r = (px_uchar)(r*255);
+	color._argb.g = (px_uchar)(g*255);
+	color._argb.b = (px_uchar)(b*255);
+	return color;
+}
+
+
+px_color PX_ColorInverse(px_color clr)
+{
+	px_color color;
+	color._argb.a = clr._argb.a;
+	color._argb.r = 255-clr._argb.r;
+	color._argb.g = 255 - clr._argb.g;
+	color._argb.b = 255 - clr._argb.b;
+	return color;
+}
 
 px_void PX_ColorIncrease(px_color *color,px_uchar inc)
 {
@@ -1431,6 +1833,232 @@ px_bool PX_ColorEqual(px_color color1,px_color color2)
 	return color1._argb.ucolor==color2._argb.ucolor;
 }
 
+px_color_hsl PX_ColorRGBToHSL(px_color color_rgb)
+{
+	px_color_hsl hsl;
+	px_float max=0,min=0;
+	px_float r,g,b;
+
+	r=color_rgb._argb.r/255.f;
+	g=color_rgb._argb.g/255.f;
+	b=color_rgb._argb.b/255.f;
+
+	max=r;
+	max=max<g?g:max;
+	max=max<b?b:max;
+
+	min=r;
+	min=min>g?g:min;
+	min=min>b?b:min;
+
+
+	hsl.L=(max+min)/2.0f;
+	if (max==min)
+	{
+		hsl.S=0;
+	}
+	else
+	{
+		hsl.S=(hsl.L<0.5f?(max-min)/(max + min):(max-min)/(2.0f-max-min));
+	}
+	if(r==max) hsl.H=(g-b)*1.0f/(max-min);
+	if(g==max) hsl.H=2.0f+(b-r)*1.0f/(max-min);
+	if(b==max) hsl.H=4.0f+(r-g)*1.0f/(max-min);
+	hsl.H=hsl.H*60;
+	if (hsl.H<0)
+	{
+		hsl.H+=360;
+	}
+	hsl.a=color_rgb._argb.a/255.f;
+	return hsl;
+}
+
+px_color PX_ColorHSLToRGB(px_color_hsl color_hsl)
+{
+	px_float r,g,b,temp1,temp2,temp3,H,S,L;
+	H=color_hsl.H;
+	S=color_hsl.S;
+	L=color_hsl.L;
+
+	if (color_hsl.S==0)
+	{
+		r=g=b=color_hsl.L;
+	}
+	else
+	{
+		if(L<0.5)
+			temp2=L*(1.0f+S);
+		else
+			temp2=L+S-L*S;
+
+		temp1 = 2.0f * L - temp2;
+		H /= 360;
+
+		r = temp3 = H + 1.0f / 3.0f;
+		if (temp3 < 0)
+			temp3 = temp3 + 1.0f;
+		if (temp3 > 1)
+			temp3 = temp3 - 1.0f;
+
+		if (6.0f * temp3 < 1)r = temp1 + (temp2 - temp1) * 6.0f * temp3;
+		else if (2.0f * temp3 < 1)r = temp2;
+		else if (3.0f * temp3 < 2)r = temp1 + (temp2 - temp1) * ((2.0f / 3.0f) - temp3) * 6.0f;
+		else r = temp1;
+
+		temp3 = H;
+		if (temp3 < 0)
+			temp3 = temp3 + 1.0f;
+		if (temp3 > 1)
+			temp3 = temp3 - 1.0f;
+		if (6.0f * temp3 < 1)g = temp1 + (temp2 - temp1) * 6.0f * temp3;
+		else if (2.0f * temp3 < 1)g = temp2;
+		else if (3.0f * temp3 < 2)g = temp1 + (temp2 - temp1) * ((2.0f / 3.0f) - temp3) * 6.0f;
+		else g = temp1;
+
+		temp3 = H - 1.0f / 3.0f;
+		if (temp3 < 0)
+			temp3 = temp3 + 1.0f;
+		if (temp3 > 1)
+			temp3 = temp3 - 1.0f;
+		if (6.0f * temp3 < 1)b = temp1 + (temp2 - temp1) * 6.0f * temp3;
+		else if (2.0f * temp3 < 1)b = temp2;
+		else if (3.0f * temp3 < 2)b = temp1 + (temp2 - temp1) * ((2.0f / 3.0f) - temp3) * 6.0f;
+		else b = temp1;
+	}
+
+	return PX_COLOR((px_uchar)(color_hsl.a*255),(px_uchar)(r*255),(px_uchar)(g*255),(px_uchar)(b*255));
+}
+
+px_color_hsv PX_ColorRGBToHSV( px_color rgb)
+{
+	px_color_hsv hsv;
+	px_float h, s, v;
+	px_float max = 0, min = 0;
+	px_float R, G, B;
+
+	R = rgb._argb.r / 255.f;
+	G = rgb._argb.g / 255.f;
+	B = rgb._argb.b / 255.f;
+
+	max = R;
+	max = max < G ? G : max;
+	max = max < B ? B : max;
+
+	min = R;
+	min = min > G ? B : min;
+	min = min > B ? B : min;
+
+
+	v = max;
+	if (max == 0)
+		s = 0;
+	else
+		s = 1 - (min / max);
+
+	if (max == min)
+		h = 0;
+	else if (max == R && G >= B)
+		h = 60 * ((G - B) / (max - min));
+	else if (max == R && G < B)
+		h = 60 * ((G - B) / (max - min)) + 360;
+	else if (max == G)
+		h = 60 * ((B - R) / (max - min)) + 120;
+	else if (max == B)
+		h = 60 * ((R - G) / (max - min)) + 240;
+
+	hsv.a = rgb._argb.a / 255.f;
+	hsv.H = h;
+	hsv.V = v;
+	hsv.S = s;
+	return hsv;
+}
+
+px_color PX_ColorHSVToRGB(px_color_hsv hsv)
+{
+	px_color rgb;
+	px_float R, G, B;
+	px_float C = 0, X = 0, Y = 0, Z = 0;
+	px_int i = 0;
+	px_float H = hsv.H;
+	px_float S = hsv.S;
+	px_float V = hsv.V;
+	if (S == 0)
+		R = G = B = V;
+	else
+	{
+		H = H / 60;
+		i = (px_int)H;
+		C = H - i;
+
+		X = V * (1 - S);
+		Y = V * (1 - S * C);
+		Z = V * (1 - S * (1 - C));
+		switch (i) {
+		case 0: R = V; G = Z; B = X; break;
+		case 1: R = Y; G = V; B = X; break;
+		case 2: R = X; G = V; B = Z; break;
+		case 3: R = X; G = Y; B = V; break;
+		case 4: R = Z; G = X; B = V; break;
+		case 5: R = V; G = X; B = Y; break;
+		}
+	}
+	rgb._argb.r = (px_byte)(R * 255);
+	rgb._argb.g = (px_byte)(G * 255);
+	rgb._argb.b = (px_byte)(B * 255);
+	rgb._argb.a= (px_byte)(hsv.a * 255);
+	return rgb;
+}
+
+px_color_YCbCr PX_ColorRGBToYCbCr(px_color rgb)
+{
+	//rgb to YCbCr
+	px_color_YCbCr YCbCr;
+	px_int Y, Cb, Cr;
+	px_int r = rgb._argb.r;
+	px_int g  =rgb._argb.g;
+	px_int b  =rgb._argb.b;
+	YCbCr.a=rgb._argb.a;
+
+	Y = (299 * r + 587 * g + 114 * b)/1000-128;
+	Cb = (169 *r-331*g+500*b)/1000;
+	Cr = (500*r-419*g-81*b)/1000;
+
+	if (Y < -128) Y = -128;
+	if (Y > 127) Y = 127;
+	if (Cb < -128) Cb = -128;
+	if (Cb > 127) Cb = 127;
+	if (Cr < -128) Cr = -128;
+	if (Cr > 127) Cr = 127;
+	YCbCr.Y = (px_char)Y;
+	YCbCr.Cb = (px_char)Cb;
+	YCbCr.Cr = (px_char)Cr;
+	return YCbCr;
+}
+
+px_color PX_ColorYCbCrToRGB(px_color_YCbCr YCbCr)
+{
+	//YCbCr to rgb
+	px_color rgb;
+	px_int r,g, b;
+	rgb._argb.a=YCbCr.a;
+	r = (1000*YCbCr.Y + 1402*YCbCr.Cr)/1000+128;
+	g = (1000*YCbCr.Y -344*YCbCr.Cb - 714*YCbCr.Cr)/1000+128;
+	b = (1000*YCbCr.Y + 1772 *YCbCr.Cb)/1000+128;
+
+	if (r < 0) r = 0;
+	if (r > 255) r = 255;
+	if (g < 0) g = 0;
+	if (g > 255) g = 255;
+	if (b < 0) b = 0;
+	if (b > 255) b = 255;
+	rgb._argb.r = (px_byte)r;
+	rgb._argb.g = (px_byte)g;
+	rgb._argb.b = (px_byte)b;
+
+	return rgb;
+}
+
+
 px_color PX_ColorMul(px_color color1,px_double muls)
 {
 	color1._argb.a=(px_uchar)(color1._argb.a*muls);
@@ -1530,6 +2158,7 @@ px_point2D PX_Point2DDiv(px_point2D p1,px_float m)
 	return p1;
 }
 
+
 px_float PX_PointDot(px_point p1,px_point p2)
 {
 	return p1.x*p2.x+p1.y*p2.y+p1.z*p2.z;
@@ -1555,6 +2184,7 @@ px_point PX_PointCross(px_point p1,px_point p2)
 }
 
 
+
 px_point4D PX_Point4DCross(px_point4D p1,px_point4D p2)
 {
 	px_point4D pt;
@@ -1569,6 +2199,12 @@ px_point PX_PointInverse(px_point p1)
 {
 	return PX_POINT(-p1.x,-p1.y,-p1.z);
 }
+
+px_point2D PX_Point2DInverse(px_point2D p1)
+{
+	return PX_POINT2D(-p1.x, -p1.y);
+}
+
 
 px_float PX_PointMod(px_point p)
 {
@@ -1585,6 +2221,12 @@ px_float  PX_PointSquare(px_point p)
 {
 	return (p.x*p.x+p.y*p.y+p.z*p.z);
 }
+
+px_float  PX_Point2DSquare(px_point2D p)
+{
+	return (p.x * p.x + p.y * p.y );
+}
+
 
 px_point PX_PointNormalization(px_point p)
 {
@@ -1632,6 +2274,19 @@ px_point PX_PointReflectX(px_point vector_refer,px_point respoint)
 	ret.x=respoint.x*cosx+respoint.y*sinx;
 	ret.y=respoint.y*cosx-respoint.x*sinx;
 	ret.z=respoint.z;
+	return ret;
+}
+
+px_point2D PX_Point2DReflectX(px_point2D vector_refer, px_point2D respoint)
+{
+	px_point2D ret;
+	px_float cosx, sinx;
+	px_float mod = PX_Point2DMod(vector_refer);
+	cosx = vector_refer.x / mod;
+	sinx = -vector_refer.y / mod;
+
+	ret.x = respoint.x * cosx + respoint.y * sinx;
+	ret.y = respoint.y * cosx - respoint.x * sinx;
 	return ret;
 }
 
@@ -1966,7 +2621,7 @@ px_bool PX_isLineCrossRect(px_point p1,px_point p2,px_rect rect,px_point *cp1,px
 	return bcross;
 }
 
-void PX_memset(void *dst,px_byte byte,px_int size)
+px_void PX_memset(px_void *dst,px_byte byte,px_int size)
 {
 	px_dword dw=byte?(byte<<24)|(byte<<16)|(byte<<8)|byte:0;
 	px_dword *_4byteMovDst=(px_dword *)dst;
@@ -1982,14 +2637,14 @@ void PX_memset(void *dst,px_byte byte,px_int size)
 }
 
 
-void PX_memdwordset(void *dst,px_dword dw,px_int count)
+px_void PX_memdwordset(px_void *dst,px_dword dw,px_int count)
 {
 	px_dword *p=(px_dword *)dst;
 	while(count--)*p++=dw;
 }
 
 
-px_bool PX_memequ(const void *dst,const void *src,px_int size)
+px_bool PX_memequ(const px_void *dst,const px_void *src,px_int size)
 {
 	px_dword *_4byteMovSrc=(px_dword *)src;
 	px_dword *_4byteMovDst=(px_dword *)dst;
@@ -2076,7 +2731,10 @@ px_void PX_memcpy(px_void *dst,const px_void *src,px_int size)
 	PX_MEMCPY_16 *_16byteMovSrc,*_16byteMovDst;
 	px_uint _movTs;
 
-
+	if (size<=0)
+	{
+		return;
+	}
 	//is overlap?
 	if (dst>src&&(px_char *)dst<(px_char *)src+size)
 	{
@@ -2270,6 +2928,19 @@ px_void PX_memcpy(px_void *dst,const px_void *src,px_int size)
 	}
 }
 
+px_int PX_memcmp(px_void* dst, const px_void* src, px_int size)
+{
+	px_int i;
+	px_char *psrc=(px_char *)src;
+	px_char *pdst=(px_char *)dst;
+	for (i = 0; i < size; i++)
+	{
+		if(psrc[i]-pdst[i])
+			return psrc[i] - pdst[i];
+	}
+	return 0;
+}
+
 
 
 px_void PX_strcpy(px_char *dst,const px_char *src,px_int size)
@@ -2306,7 +2977,14 @@ px_void PX_strcat(px_char *src,const px_char *cat)
 	*src='\0';
 }
 
-px_void PX_strcat_s(px_char* src, const px_char* cat, px_int size)
+px_void PX_strcatlen(px_char* src, const px_char* cat,px_int len)
+{
+	while (*src)src++;
+	while (len--)*src++ = *cat++;
+	*src = '\0';
+}
+
+px_void PX_strcat_s(px_char* src, px_int size, const px_char* cat)
 {
 	if (PX_strlen(src)+PX_strlen(cat)<size)
 	{
@@ -2353,8 +3031,27 @@ px_int PX_wstrlen(const px_word *dst)
 	return len-1;
 }
 
+px_bool PX_chrequ2(px_char _l, px_char _r)
+{
+	if (_l >= 'a' && _l <= 'z')
+	{
+		_l += 'A' - 'a';
+	}
+	if (_r >= 'a' && _r <= 'z')
+	{
+		_r += 'A' - 'a';
+	}
+	if (_l == _r)
+	{
+		return PX_TRUE;
+	}
+	else
+	{
+		return PX_FALSE;
+	}
+}
 
-px_bool PX_strequ2(const px_char* src, const char* dst)
+px_bool PX_strequ2(const px_char* src, const px_char* dst)
 {
 	px_char _l, _r;
 	while (PX_TRUE)
@@ -2540,7 +3237,7 @@ px_complex PX_complexExp(px_complex a)
 
 px_complex PX_complexSin(px_complex a)
 {
-	double q,p;
+	px_double64 q,p;
 	px_complex ret;
 	p=PX_exp(a.im);
 	q=1/p;
@@ -2550,7 +3247,7 @@ px_complex PX_complexSin(px_complex a)
 }
 
 
-void PX_DFT(_IN px_complex x[],_OUT px_complex X[],px_int N)
+px_void PX_DFT(_IN px_complex x[],_OUT px_complex X[],px_int N)
 {
 	px_int k,n;
 	px_complex Wnk;
@@ -2573,10 +3270,15 @@ void PX_DFT(_IN px_complex x[],_OUT px_complex X[],px_int N)
 	}
 }
 
-void PX_DCT(_IN px_double x[],_OUT px_double X[],px_int N)
+px_void PX_DCT(_IN px_double x[],_OUT px_double X[],px_int N)
 {
 	px_int n,m;
 	px_double v;
+	if (x == X)
+	{
+		//overlap error
+		PX_ASSERT();
+	}
 	PX_memset(X,0,sizeof(px_double)*N);
 	for (n=0;n<N;n++)
 	{
@@ -2595,7 +3297,7 @@ void PX_DCT(_IN px_double x[],_OUT px_double X[],px_int N)
 	}
 }
 
-void PX_IDFT(_IN px_complex X[],_OUT px_complex x[],px_int N)
+px_void PX_IDFT(_IN px_complex X[],_OUT px_complex x[],px_int N)
 {
 	px_int k,n;
 	px_float im=0;
@@ -2622,7 +3324,7 @@ void PX_IDFT(_IN px_complex X[],_OUT px_complex x[],px_int N)
 	}
 }   
 
-void PX_IDCT(_IN px_double X[],_OUT px_double x[],px_int N)
+px_void PX_IDCT(_IN px_double X[],_OUT px_double x[],px_int N)
 {
 	px_int n,m;
 	px_double v0,v;
@@ -2647,7 +3349,116 @@ void PX_IDCT(_IN px_double X[],_OUT px_double x[],px_int N)
 	}	
 }
 
-void FFT_Base2(_IN _OUT px_complex x[],px_int N)
+static px_void PX_FDCT_SortArray(px_complex x[], px_int N,px_int sN)
+{
+	px_int i,j;
+	for (i=0;i<N/sN;i++)
+	{
+		if (sN==4)
+		{
+			px_complex temp = x[i * 4+1];
+			x[i * 4 + 1] = x[i * 4 + 2];
+			x[i * 4 + 2] = temp;
+		}
+		else
+		{
+			for (j=0;j<sN/4;j++)
+			{
+				px_complex temp = x[i * sN + sN / 4 + j];
+				x[i * sN + sN / 4 + j] = x[i * sN + sN / 2 + j];
+				x[i * sN + sN / 2 + j] = temp;
+			}
+		}
+	}
+}
+
+px_void PX_FDCT(_IN _OUT px_complex x[], _OUT px_complex X[], px_int N)
+{
+	px_int i;
+	px_int sLen = 4;
+	px_double v;
+	PX_memcpy(X, x, sizeof(px_complex) * N);
+
+	if (N&(N-1))
+	{
+		return;
+	}
+	if (N<4)
+	{
+		return;
+	}
+
+	while (sLen <= N)
+	{
+		PX_FDCT_SortArray(X, N, sLen);
+		sLen *= 2;
+	}
+	for (i=0;i<N/4;i++)
+	{
+		px_complex t = X[N / 2 + i];
+		X[N / 2 + i] = X[N - i - 1];
+		X[N - i - 1] = t;
+	}
+
+
+	PX_FFT(X, X, N);
+
+	for (i = 0; i < N; i++)
+	{
+		X[i].re = X[i].re * PX_cosd(i * PX_PI / (N * 2)) + X[i].im * PX_sind(i * PX_PI / (N * 2));
+		X[i].im = 0;
+	}
+
+	v = PX_sqrtd(2.0 / N);
+	X[0].re *= PX_sqrtd(1.0 / N);
+
+	for (i = 1; i < N; i++)
+	{
+		X[i].re *= v;
+	}
+}
+
+px_void PX_FIDCT(_IN _OUT px_complex x[], _OUT px_complex X[], px_int N) {
+	px_int i;
+	px_int sLen = N;
+	px_double v;
+
+	PX_memcpy(X, x, sizeof(px_complex) * N);
+	v = PX_sqrtd(2.0 / N);
+
+	for (i = 1; i < N; i++)
+	{
+		X[i].re *= v;
+	}
+	X[0].re *= PX_sqrtd(1.0 / N);
+
+
+	for (i = 0; i < N; i++) {
+		px_double t = X[i].re;
+		X[i].re = t * PX_cosd(i * PX_PI / (N * 2));
+		X[i].im =-t* PX_sind(i * PX_PI / (N * 2));
+	}
+
+	PX_FFT(X, X, N);
+
+	for (i = 0; i < N / 4; i++)
+	{
+		px_complex t = X[N / 2 + i];
+		X[N / 2 + i] = X[N - i - 1];
+		X[N - i - 1] = t;
+	}
+	while (sLen >= 4)
+	{
+		PX_FDCT_SortArray(X, N, sLen);
+		sLen /= 2;
+	}
+	for (i = 0; i < N; i++)
+	{
+		X[i].im = 0;
+	}
+}
+
+px_void FFT_Base2(_IN _OUT px_complex x[],px_int N)
 {
 	px_int exbase,exrang,i,j,k;
 	px_complex excomplex,Wnk,cx0,cx1;
@@ -2699,13 +3510,43 @@ void FFT_Base2(_IN _OUT px_complex x[],px_int N)
 
 
 }
-void PX_FFT(_IN px_complex x[],_OUT px_complex X[],px_int N)
+
+px_complex PX_FTResample(_IN px_complex X[], px_int N, px_float t_0_1)
+{
+	px_complex x = {0};
+	px_int n;
+	px_float im = 0;
+	px_complex ejw;
+	px_float k;
+
+	if (N==0)
+	{
+		PX_ASSERT();
+		return x;
+	}
+	k = t_0_1 * (N - 1);
+	x.re = 0;
+	x.im = 0;
+	
+	for (n = 0; n < N; n++)
+	{
+		ejw.re = (px_float)PX_cosd((2 * PX_PI * k * n / N));
+		ejw.im = (px_float)PX_sind((2 * PX_PI * k * n / N));
+		x = PX_complexAdd(x, PX_complexMult(X[n], ejw));
+	}
+
+	x.re /= N; x.im /= N;
+	return x;
+}
+
+
+px_void PX_FFT(_IN px_complex x[],_OUT px_complex X[],px_int N)
 {
 	PX_memcpy(X,x,sizeof(px_complex)*N);
 	FFT_Base2(X,N);
 }
 
-void IFFT_Base2(_IN _OUT px_complex X[],px_int N)
+px_void IFFT_Base2(_IN _OUT px_complex X[],px_int N)
 {
 	px_int exbase,exrang,i,j,n;
 	px_complex excomplex,Wnnk,cx0,cx1;
@@ -2759,7 +3600,7 @@ void IFFT_Base2(_IN _OUT px_complex X[],px_int N)
 
 	}
 }
-void PX_IFFT(_IN px_complex X[],_OUT px_complex x[],px_int N)
+px_void PX_IFFT(_IN px_complex X[],_OUT px_complex x[],px_int N)
 {
 	px_int i;
 	PX_memcpy(X,x,sizeof(px_complex)*N);
@@ -2773,7 +3614,7 @@ void PX_IFFT(_IN px_complex X[],_OUT px_complex x[],px_int N)
 }
 
 
-void PX_FFT_2(_IN px_complex x[],_OUT px_complex X[],px_int N)
+px_void PX_FFT_2(_IN px_complex x[],_OUT px_complex X[],px_int N)
 {
 	px_int i,cx,cy;
 	px_complex _t;
@@ -2810,7 +3651,44 @@ void PX_FFT_2(_IN px_complex x[],_OUT px_complex X[],px_int N)
 	}
 }
 
-void PX_IFFT_2(_IN px_complex X[],_OUT px_complex x[],px_int N)
+px_void PX_FDCT_2(_IN px_complex x[], _OUT px_complex X[], px_int N)
+{
+	px_int i, cx, cy;
+	px_complex _t;
+	for (i = 0; i < N; i++)
+	{
+		PX_FDCT(&x[i * N], &X[i * N], N);
+	}
+	//Matrix transpose
+	for (cy = 0; cy < N; cy++)
+	{
+		for (cx = cy + 1; cx < N; cx++)
+		{
+			_t = X[cy * N + cx];
+			X[cy * N + cx] = X[cx * N + cy];
+			X[cx * N + cy] = _t;
+		}
+	}
+
+	for (i = 0; i < N; i++)
+	{
+		PX_FDCT(&X[i * N], &X[i * N], N);
+	}
+
+	//Matrix transpose again
+
+	for (cy = 0; cy < N; cy++)
+	{
+		for (cx = cy + 1; cx < N; cx++)
+		{
+			_t = X[cy * N + cx];
+			X[cy * N + cx] = X[cx * N + cy];
+			X[cx * N + cy] = _t;
+		}
+	}
+}
+
+px_void PX_IFFT_2(_IN px_complex X[],_OUT px_complex x[],px_int N)
 {
 	px_int cx,cy,i;
 	px_complex _t;
@@ -2847,7 +3725,44 @@ void PX_IFFT_2(_IN px_complex X[],_OUT px_complex x[],px_int N)
 	}
 }
 
-void PX_FFT_2_Shift(_IN px_complex _in[],_OUT px_complex _out[],px_int N)
+px_void PX_IFDCT_2(_IN px_complex X[], _OUT px_complex x[], px_int N)
+{
+	px_int cx, cy, i;
+	px_complex _t;
+	//Matrix transpose
+	for (cy = 0; cy < N; cy++)
+	{
+		for (cx = cy + 1; cx < N; cx++)
+		{
+			_t = X[cy * N + cx];
+			X[cy * N + cx] = X[cx * N + cy];
+			X[cx * N + cy] = _t;
+		}
+	}
+
+	for (i = 0; i < N; i++)
+	{
+		PX_FIDCT(&x[i * N], &X[i * N], N);
+	}
+
+	//Matrix transpose again
+	for (cy = 0; cy < N; cy++)
+	{
+		for (cx = cy + 1; cx < N; cx++)
+		{
+			_t = X[cy * N + cx];
+			X[cy * N + cx] = X[cx * N + cy];
+			X[cx * N + cy] = _t;
+		}
+	}
+
+	for (i = 0; i < N; i++)
+	{
+		PX_FIDCT(&X[i * N], &X[i * N], N);
+	}
+}
+
+px_void PX_FFT_2_Shift(_IN px_complex _in[],_OUT px_complex _out[],px_int N)
 {
 	px_int x,y;
 	px_complex *_t=_out;
@@ -2875,7 +3790,35 @@ void PX_FFT_2_Shift(_IN px_complex _in[],_OUT px_complex _out[],px_int N)
 	}
 }
 
-void PX_FT_Symmetry(_IN px_complex x[],_OUT px_complex X[],px_int N)
+px_void PX_DCT_2_Shift(_IN px_double _in[], _OUT px_double _out[], px_int N)
+{
+	px_int x, y;
+	px_double* _t = _out;
+	px_double _ext;
+	PX_memcpy(_t, _in, sizeof(px_double) * N * N);
+
+	for (y = 0; y < N / 2; y++)
+	{
+		for (x = 0; x < N / 2; x++)
+		{
+			_ext = _t[y * N + x];
+			_t[y * N + x] = _t[y * N + N * N / 2 + x + N / 2];
+			_t[y * N + N * N / 2 + x + N / 2] = _ext;
+		}
+	}
+
+	for (y = 0; y < N / 2; y++)
+	{
+		for (x = N / 2; x < N; x++)
+		{
+			_ext = _t[y * N + x];
+			_t[y * N + x] = _t[y * N + N * N / 2 + x - N / 2];
+			_t[y * N + N * N / 2 + x - N / 2] = _ext;
+		}
+	}
+}
+
+px_void PX_FT_Symmetry(_IN px_complex x[],_OUT px_complex X[],px_int N)
 {
 	px_int l=1,r=N-1;
 	PX_memcpy(X,x,N/2*sizeof(px_complex)+1);
@@ -2888,10 +3831,11 @@ void PX_FT_Symmetry(_IN px_complex x[],_OUT px_complex X[],px_int N)
 	}
 }
 
-void PX_Cepstrum(_IN px_complex x[],_OUT px_complex X[],px_int N,PX_CEPSTRUM_TYPE type)
+px_void PX_Cepstrum(_IN px_complex x[],_OUT px_complex X[],px_int N,PX_CEPSTRUM_TYPE type)
 {
 	px_int i;
 	PX_FFT(x,X,N);
+	
 	if (type==PX_CEPSTRUM_TYPE_COMPLEX)
 	{
 		for (i=0;i<N;i++)
@@ -2945,7 +3889,7 @@ px_double PX_ZeroCrossingRateComplex(_IN px_complex x[],px_int N)
 	return zeroCross*1.0/N;
 }
 
-px_int PX_PitchEstimation(_IN px_complex x[],px_int N,px_int sampleRate,px_int low_Hz,px_int high_Hz)
+px_float PX_PitchEstimation(_IN px_complex x[],px_int N,px_int sampleRate,px_int low_Hz,px_int high_Hz)
 {
 	px_int low=0,high=0,i,idx=0;
 	px_double max=0;
@@ -2983,10 +3927,10 @@ px_int PX_PitchEstimation(_IN px_complex x[],px_int N,px_int sampleRate,px_int l
 	{
 		return 0;
 	}
-	return sampleRate/idx;
+	return sampleRate*1.0f/idx;
 }
 
-void PX_PreEmphasise(const px_double *data, int len, px_double *out, px_double preF)//0.9<preF<1.0 suggest 0.9
+px_void PX_PreEmphasise(const px_double *data, px_int len, px_double *out, px_double preF)//0.9<preF<1.0 suggest 0.9
 {
 	px_int i;
 	for(i = len - 1; i >= 1; i--)
@@ -2996,7 +3940,7 @@ void PX_PreEmphasise(const px_double *data, int len, px_double *out, px_double p
 	out[0] = data[0];
 }
 
-void PX_LinearInterpolationResample(_IN px_double x[],_OUT px_double X[],px_int N,px_int M)
+px_void PX_LinearInterpolationResample(_IN px_double x[],_OUT px_double X[],px_int N,px_int M)
 {
 	px_int k,m=0;
 	px_double d1=0,d2=0;
@@ -3023,7 +3967,17 @@ void PX_LinearInterpolationResample(_IN px_double x[],_OUT px_double X[],px_int 
 	}
 }
 
-void PX_UpSampled(_IN px_complex x[],_OUT px_complex X[],px_int N,px_int L)
+px_void PX_SincInterpolationResample(_IN px_double x[], _OUT px_double X[], px_int N, px_int M)
+{
+	px_double step = 1 / (M-1);
+	px_int i;
+	for ( i = 0; i < M; i++)
+	{
+		X[i] = PX_sinc_interpolate(x, N, step * i);
+	}
+}
+
+px_void PX_UpSampled(_IN px_complex x[],_OUT px_complex X[],px_int N,px_int L)
 {
 	px_int i,j;
 	for (i=0;i<N;i++)
@@ -3066,7 +4020,7 @@ void PX_UpSampled(_IN px_complex x[],_OUT px_complex X[],px_int N,px_int L)
 	}
 }
 
-void PX_DownSampled(_IN px_complex x[],_OUT px_complex X[],px_int N,px_int M)
+px_void PX_DownSampled(_IN px_complex x[],_OUT px_complex X[],px_int N,px_int M)
 {
 	px_int i;
 	if (((N)&(N-1))==0)
@@ -3102,8 +4056,15 @@ void PX_DownSampled(_IN px_complex x[],_OUT px_complex X[],px_int N,px_int M)
 }
 
 
+px_point PX_POINT2D_3D(px_point2D p)
+{
+	return PX_POINT(p.x, p.y, 0);
+}
 
-
+px_point2D PX_POINT3D_2D(px_point p)
+{
+	return PX_POINT2D(p.x, p.y);
+}
 
 px_point PX_POINT(px_float x,px_float y,px_float z)
 {
@@ -3286,62 +4247,22 @@ static px_double __px_pow_i(px_double num,px_int n)
 
 static px_double __px_pow_f(px_double num,px_double m)
 {
-	px_int i,j;
-	px_double powd=0,x,tmpm=1;
-	x=num-1;
-	for(i=1;tmpm>0.0000000001 || tmpm<-0.0000000001;i++)
-	{
-		for(j=1,tmpm=1;j<=i;j++) 
-		{
-			tmpm*=(m-j+1)*x/j;
-		}
-		powd+=tmpm;
-		
-		if (powd==0)
-		{
-			break; 
-		}
-		if (powd>0)
-		{
-			if (powd>=PX_DBL_POSITIVE_MAX||powd<=PX_DBL_POSITIVE_MIN)
-			{
-				PX_ASSERT();
-				break;
-			}
-		}
-		else
-		{
-			if (powd<=PX_DBL_NEGATIVE_MIN||powd>=PX_DBL_NEGATIVE_MAX)
-			{
-				PX_ASSERT();
-				break;
-			}
-		}
-	}
-	return powd+1;
+	return PX_exp(m*PX_log(num));
 }
 
-px_double PX_pow_dd(px_double num,px_double m)
+px_double PX_pow(px_double num,px_double m)
 {
-	while (num>2)
-	{
-		num=PX_sqrtd(num);
-		m*=2;
-	}
-	if(num==0 && m!=0) return 0;
-	else if(num==0 && m==0) return 1;
-	else if(num<0 && m-(px_int)(m)!=0) return 0;
-	if(num>2)
-	{
-		num=1/num;
-		m=-m;
-	}
-	if(m<0) return 1/PX_pow_dd(num,-m);
+
 	if(m-(px_int)(m)==0) 
 		return __px_pow_i(num,(px_int)m);
 	else 
-		return __px_pow_f(num,m-(px_int)(m))*__px_pow_i(num,(px_int)(m));
+		return __px_pow_dd(num,m);
 	//return __px_pow_f(num,m);
+}
+
+px_double PX_fmod(px_double _X, px_double _Y)
+{
+	return _X - (px_int)(_X / _Y) * _Y;
 }
 
 px_int PX_pow_ii(px_int i,px_int n)
@@ -3360,28 +4281,94 @@ px_int PX_pow_ii(px_int i,px_int n)
 	return fin;
 }
 
-
-px_double PX_ln(px_double __x)
+static px_float __int_as_float(px_int32 a)
 {
-	px_int N = 128;
-	px_int k,nk;
-	px_double x,xx,y;
-	px_double m=1;
-	while (__x>PX_e)
-	{
-		__x=PX_sqrtd(__x);
-		m*=2;
+	px_float r; 
+	PX_memcpy(&r, &a, sizeof (r)); 
+	return r; 
+}
+static px_int32 __float_as_int(px_float a) 
+{ 
+	px_int32 r; 
+	PX_memcpy(&r, &a, sizeof(px_int32));
+	return r; 
+}
+
+
+px_double64 PX_ln(px_double x)
+{
+	px_double64 hfsq, f, s, z, R, w, t1, t2, dk;
+	int k, hx, i, j;
+	unsigned lx;
+	static px_double64	ln2_hi = 6.93147180369123816490e-01,	/* 3fe62e42 fee00000 */
+		ln2_lo = 1.90821492927058770002e-10,	/* 3dea39ef 35793c76 */
+		two54 = 1.80143985094819840000e+16,  /* 43500000 00000000 */
+		Lg1 = 6.666666666666735130e-01,  /* 3FE55555 55555593 */
+		Lg2 = 3.999999999940941908e-01,  /* 3FD99999 9997FA04 */
+		Lg3 = 2.857142874366239149e-01,  /* 3FD24924 94229359 */
+		Lg4 = 2.222219843214978396e-01,  /* 3FCC71C5 1D8E78AF */
+		Lg5 = 1.818357216161805012e-01,  /* 3FC74664 96CB03DE */
+		Lg6 = 1.531383769920937332e-01,  /* 3FC39A09 D078C69F */
+		Lg7 = 1.479819860511658591e-01;  /* 3FC2F112 DF3E5244 */
+
+	static px_double64 zero = 0.0;
+
+	hx = *(1 + (px_int32*)&x);
+	lx = *(px_int32*)&x;
+
+	k = 0;
+	if (hx < 0x00100000) {			/* x < 2**-1022  */
+		if (((hx & 0x7fffffff) | lx) == 0)
+			return -two54 / zero;		/* log(+-0)=-inf */
+		if (hx < 0) return (x - x) / zero;	/* log(-#) = NaN */
+		k -= 54; x *= two54; /* subnormal number, scale up x */
+		hx = *(1 + (px_int32*)&x);		/* high word of x */
 	}
-	x = (__x-1)/(__x+1);
-	xx = x*x;
-	nk = 2*N+1;
-	y = 1.0/nk;
-	for(k=N;k>0;k--)
-	{
-		nk = nk - 2;
-		y = 1.0/nk+xx*y;
+	if (hx >= 0x7ff00000) return x + x;
+	k += (hx >> 20) - 1023;
+	hx &= 0x000fffff;
+	i = (hx + 0x95f64) & 0x100000;
+	*(1 + (px_int32*)&x) = hx | (i ^ 0x3ff00000);	/* normalize x or x/2 */
+	k += (i >> 20);
+	f = x - 1.0;
+	if ((0x000fffff & (2 + hx)) < 3) {	/* |f| < 2**-20 */
+		if (f == zero)
+		{
+			if (k == 0)
+			{
+				return zero;
+			}
+			else
+			{
+				dk = (px_double64)k;
+				return dk * ln2_hi + dk * ln2_lo;
+			}
+		}
+		R = f * f * (0.5 - 0.33333333333333333 * f);
+		if (k == 0) return f - R; else {
+			dk = (px_double64)k;
+			return dk * ln2_hi - ((R - dk * ln2_lo) - f);
+		}
 	}
-	return 2.0*x*y*m;
+	s = f / (2.0 + f);
+	dk = (px_double64)k;
+	z = s * s;
+	i = hx - 0x6147a;
+	w = z * z;
+	j = 0x6b851 - hx;
+	t1 = w * (Lg2 + w * (Lg4 + w * Lg6));
+	t2 = z * (Lg1 + w * (Lg3 + w * (Lg5 + w * Lg7)));
+	i |= j;
+	R = t2 + t1;
+	if (i > 0) {
+		hfsq = 0.5 * f * f;
+		if (k == 0) return f - (hfsq - s * (hfsq + R)); else
+			return dk * ln2_hi - ((hfsq - (s * (hfsq + R) + dk * ln2_lo)) - f);
+	}
+	else {
+		if (k == 0) return f - s * (f - R); else
+			return dk * ln2_hi - ((s * (f - R) - dk * ln2_lo) - f);
+	}
 }
 
 px_double PX_log(px_double __x)
@@ -3401,17 +4388,24 @@ px_double PX_log10(px_double __x)
 
 
 
-static px_uint64 px_srand_seed=0x31415926;
+px_double PX_tand(px_double radian)
+{
+	return PX_tan_radian((px_float)radian);
+}
+
+px_uint64 px_srand_seed=0x31415926;
 
 px_void PX_srand(px_uint64 seed)
 {
-	  seed = (seed*16807)%(0xefffffff);
+	  seed = (seed*16807+1)%(0xefffffff);
 	  px_srand_seed=seed;
 }
 
 px_uint32 PX_rand()
 {
-	return  ((px_uint32)(px_srand_seed = (px_srand_seed*764261123)%(0xefffffff)))&PX_RAND_MAX;
+	
+    px_srand_seed = (px_srand_seed*314159269+453806245)%(2147483648);
+	return (px_uint32)(px_srand_seed&PX_RAND_MAX);
 }
 
 
@@ -3422,7 +4416,7 @@ px_double PX_randRange(px_double min,px_double max)
 
 px_uint32 PX_randEx(px_uint64 seed)
 {
-	return  (px_uint32)(seed = (seed*764261123)%(0xefffffff));
+	return  (px_uint32)(seed = ((seed * 314159269 + 453806245) % (2147483648)));
 }
 
 
@@ -3480,6 +4474,39 @@ px_void PX_FileGetName(const px_char filefullName[],px_char _out[],px_int outSiz
 		_out++;
 	}
 
+}
+
+px_void PX_FileGetFullName(const px_char filefullName[], px_char _out[], px_int outSize)
+{
+	px_int s;
+	if (outSize == 0)
+	{
+		return;
+	}
+	_out[0] = 0;
+	s = PX_strlen(filefullName);
+	if (s == 0)
+	{
+		return;
+	}
+	s--;
+	while (s)
+	{
+		if (filefullName[s] == '/' || filefullName[s] == '\\')
+		{
+			s++;
+			break;
+		}
+		s--;
+	}
+
+	while (outSize > 1 && filefullName[s] && filefullName[s] != '\0')
+	{
+		outSize--;
+		*_out = filefullName[s++];
+		_out[1] = '\0';
+		_out++;
+	}
 }
 px_void PX_FileGetPath(const px_char filefullName[],px_char _out[],px_int outSize)
 {
@@ -3625,7 +4652,7 @@ static const px_uint32 crc32tab[] = {
 };  
 
 
-px_uint32 PX_crc32( px_void *buffer, px_uint size)  
+px_uint32 PX_crc32(const px_void *buffer, px_uint size)  
 {  
 	px_uint32 i, crc;  
 	crc = 0xFFFFFFFF;  
@@ -3640,7 +4667,7 @@ px_uint32 PX_crc32( px_void *buffer, px_uint size)
 
 
 
-px_word PX_crc16(px_void *buffer,px_uint size)
+px_word PX_crc16(const px_void *buffer,px_uint size)
 {
 	px_uint pos,i;
 	px_word crc = 0xFFFF;
@@ -3667,7 +4694,7 @@ px_word PX_crc16(px_void *buffer,px_uint size)
 	
 }
 
-px_char *PX_strchr(const char *s,px_int ch)
+px_char *PX_strchr(const px_char *s,px_int ch)
 {
 
 	while(*s!='\0')
@@ -3690,7 +4717,7 @@ px_int PX_strcmp(const px_char *str1, const px_char *str2)
 	return ret;   
 }
 
-px_char* PX_strstr(const char* dest, const char* src)
+px_char* PX_strstr(const px_char* dest, const px_char* src)
 {
 	px_char* start = (px_char*)dest;
 	px_char* substart = (px_char*)src;
@@ -3713,6 +4740,65 @@ px_char* PX_strstr(const char* dest, const char* src)
 	return PX_NULL;
 }
 
+px_char* PX_strstr2(const px_char* dest, const px_char* src)
+{
+	px_char* start = (px_char*)dest;
+	px_char* substart = (px_char*)src;
+	px_char* cp = (px_char*)dest;
+	while (*cp)
+	{
+		start = cp;
+		while (*start != '\0' && *substart != '\0' && PX_chrequ2(*start,*substart))
+		{
+			start++;
+			substart++;
+		}
+		if (*substart == '\0')
+		{
+			return cp;
+		}
+		substart = (px_char*)src;
+		cp++;
+	}
+	return PX_NULL;
+}
+
+
+px_void PX_strcut(px_char* dest, px_int left, px_int right)
+{
+	px_int len = PX_strlen(dest);
+
+	if (len==0)
+	{
+		return;
+	}
+
+	if (right < left)
+	{
+		px_int t = left;
+		left = right;
+		right = t;
+	}
+	if (left<0)
+	{
+		left = 0;
+	}
+	if (left>len-1)
+	{
+		left = len-1;
+	}
+	if (right < 0)
+	{
+		right = 0;
+	}
+	if (right > len-1)
+	{
+		right = len-1;
+	}
+	
+	PX_memcpy(dest, dest + left, right-left+1);
+	dest[right - left + 1] = 0;
+}
 
 
 px_bool PX_isPointInCircle(px_point p,px_point circle,px_float radius)
@@ -3745,11 +4831,28 @@ px_dword  PX_inet_addr( const px_char cp[] )
 	return *(px_dword*)ipBytes;
 }
 
+px_dword  PX_inet_port(const px_char cp[])
+{
+	const px_char *p=cp;
+	while (*p)
+	{
+		if (*p==':')
+		{
+			p++;
+			break;
+		}
+		p++;
+	}
+	return (px_dword)PX_atoi(p);
+}
 
-px_char* PX_inet_ntoa(px_dword ipv4)
+
+
+PX_RETURN_STRING PX_inet_ntoa(px_dword ipv4)
 {
 	px_int b[4];
-	static px_char a[17];
+	PX_RETURN_STRING ret = {0};
+	px_char *a=ret.data;
 	a[0]='\0';
 	b[0]=((ipv4 & 0xff000000)>>24);
 	b[1]=((ipv4 & 0x00ff0000)>>16);
@@ -3763,7 +4866,74 @@ px_char* PX_inet_ntoa(px_dword ipv4)
 	PX_itoa(b[1],a+PX_strlen(a),5,10);
 	PX_strcat(a,".");
 	PX_itoa(b[0],a+PX_strlen(a),5,10);
-	return a;
+	
+	return ret;
+}
+
+px_bool PX_IsValidIPAddress(const px_char *ip_addr)
+{
+	// Only supports Ipv4
+	px_int len;
+	px_int position = 0; // Current parser position
+	px_int bitsNumber = 0; // how many bits in ip_addr,The valid ip address should be 4 bits
+	px_int bitsLen; // The length of a single bit
+	px_int bits;// The value of a single bit
+	px_int n, i;
+
+	len = PX_strlen(ip_addr);
+	if (len < 7 || len > 15) return PX_FALSE; // The valid IP address length should be 7 to 15
+
+	for (i = 0; i < len; i++) 
+	{
+		if (ip_addr[i] == '.' || i == len - 1) 
+		{
+			bitsLen = i - position;
+			if (i == len - 1) bitsLen++; // at the end, Need to add an extra length 1
+			if (bitsLen > 3 || bitsLen == 0) return PX_FALSE;
+			if (bitsLen != 1 && ip_addr[position] == '0') return PX_FALSE;
+
+			for (n = 0, bits = 0; n < bitsLen; n++, position++) bits = 10 * bits + (ip_addr[position] - '0');
+			if (bits > 255) return PX_FALSE;
+			position++;
+			bitsNumber++;
+		} 
+		else if (ip_addr[i] >= '0' && ip_addr[i] <= '9') continue;
+		else return PX_FALSE;
+	}
+	if (bitsNumber != 4) return PX_FALSE;
+	return PX_TRUE;
+}
+
+px_timestamp PX_TimeFromString(const px_char* t)
+{
+	px_timestamp time = { 0 };
+	px_char data[20] = { 0 };
+	if (PX_strlen(t)==10)
+	{
+		PX_memcpy(data, t, 10);
+		data[4] = 0;
+		data[7] = 0;
+		time.year = PX_atoi(data);
+		time.month= PX_atoi(data + 5);
+		time.day = PX_atoi(data + 8);
+	}
+	else
+	if (PX_strlen(t)==19)
+	{
+		PX_memcpy(data, t, 19);
+		data[4] = 0;
+		data[7] = 0;
+		data[10] = 0;
+		data[13] = 0;
+		data[16] = 0;
+		time.year = PX_atoi(data);
+		time.month = PX_atoi(data + 5);
+		time.day = PX_atoi(data + 8);
+		time.hour = PX_atoi(data + 11);
+		time.minute = PX_atoi(data + 14);
+		time.second = PX_atoi(data + 17);
+	}
+	return time;
 }
 
 px_dword PX_htonl(px_dword h)
@@ -3820,6 +4990,10 @@ px_float PX_PointDistance(px_point p1,px_point p2)
 	return PX_sqrt((p1.x-p2.x)*(p1.x-p2.x)+(p1.y-p2.y)*(p1.y-p2.y));
 }
 
+px_float PX_Point2DDistance(px_point2D p1, px_point2D p2)
+{
+	return PX_sqrt((p1.x - p2.x) * (p1.x - p2.x) + (p1.y - p2.y) * (p1.y - p2.y));
+}
 
 px_void  PX_WindowFunction_triangular(px_double data[],px_int N)
 {
@@ -4131,7 +5305,7 @@ static px_double PX_FIRKaiser(px_int i,px_int n,px_double beta)
 {
 	px_double a,w,a2,b1,b2,beta1;
 	b1=PX_Bessel(0,beta);
-	a=2.0*i/(px_double)(n-1)-1.0;
+	a=2.0*i/(px_double)(n-1.0)-1.0;
 	a2=a*a;
 	beta1=beta*PX_sqrtd(1.0-a2);
 	b2=PX_Bessel(0,beta1);
@@ -4157,11 +5331,11 @@ static px_double PX_FIRWindow(PX_FIRFILTER_WINDOW_TYPE type,px_int n,px_int i,px
 			k=(n-2)/10;
 			if (i<=k)
 			{
-				w=0.5*(1.0-PX_cos_radian((px_float)(i*pi/(k+1))));
+				w=0.5*(1.0-PX_cos_radian((px_float)(i*pi/(k+1.0f))));
 			}
 			if (i>n-k-2)
 			{
-				w=0.5*((px_float)(1.0-PX_cos_radian((px_float)((n-i-1)*pi/(k+1)))));
+				w=0.5*((px_float)(1.0-PX_cos_radian((px_float)((n-i-1.0f)*pi/(k+1.0f)))));
 			}
 			break;
 		}
@@ -4172,17 +5346,17 @@ static px_double PX_FIRWindow(PX_FIRFILTER_WINDOW_TYPE type,px_int n,px_int i,px
 		}
 	case PX_FIRFILTER_WINDOW_TYPE_HANNING:
 		{
-			w=0.5*(1.0-PX_cos_radian((px_float)(2*i*pi/(n-1))));
+			w=0.5*(1.0-PX_cos_radian((px_float)(2.0f*i*pi/(n-1.0f))));
 			break;
 		}
 	case PX_FIRFILTER_WINDOW_TYPE_HAMMING:
 		{
-			w=0.54-0.46*PX_cos_radian((px_float)(2*i*pi/(n-1)));
+			w=0.54-0.46*PX_cos_radian((px_float)(2.0f*i*pi/(n-1.0)));
 			break;
 		}
 	case PX_FIRFILTER_WINDOW_TYPE_BLACKMAN:
 		{
-			w=0.42-0.5*PX_cos_radian((px_float)(2*i*pi/(n-1)))+0.08*PX_cos_radian((px_float)(4*i*pi/(n-1)));
+			w=0.42-0.5*PX_cos_radian((px_float)(2.0f*i*pi/(n-1.0f)))+0.08*PX_cos_radian((px_float)(4.0f*i*pi/(n-1.0f)));
 			break;
 		}
 	case PX_FIRFILTER_WINDOW_TYPE_KAISER:
@@ -4297,4 +5471,297 @@ px_void PX_FIRFilterBuild(PX_FIRFILTER_TYPE bandtype,px_double fln,px_double fhn
 		}
 		break;
 	}
+}
+
+
+px_double PX_GroupDelay(px_double f, px_double* B, px_int sizeB, px_double* A, px_int sizeA, px_double FS)
+{
+	px_int i;
+	px_double omega;
+	px_double Br[2] = { 0 };
+	px_double Be[2] = { 0 };
+	px_double Ar[2] = { 0 };
+	px_double Ae[2] = { 1,0 };
+	px_double BrxAe[2] = { 0 };
+	px_double BexAr[2] = { 0 };
+	px_double AxB[2] = { 0 };
+	px_double Num[2] = { 0 };
+	px_double c[2] = { 0 };
+	px_double magd2;
+
+	omega = (px_double)(2.0f * PX_PI * f / FS);
+
+	for (i = 1; i < sizeB; i++) 
+	{
+		Br[0] += i * (px_double)PX_cosd(i *1.0* omega) * B[i];
+		Br[1] -= i * (px_double)PX_sind(i *1.0* omega) * B[i];
+	}
+
+	for (i = 0; i < sizeB; i++) 
+	{
+		Be[0] += (px_double)PX_cosd(i *1.0* omega) * B[i];
+		Be[1] -= (px_double)PX_sind(i *1.0* omega) * B[i];
+	}
+
+	for (i = 0; i < sizeA; i++) {
+		Ar[0] += (i + 1) * (px_double)PX_cosd((i + 1.0) * omega) * A[i];
+		Ar[1] -= (i + 1) * (px_double)PX_sind((i + 1.0) * omega) * A[i];
+	}
+
+	for (i = 0; i < sizeA; i++) {
+		Ae[0] += (px_double)PX_cosd((i + 1.0) * omega) * A[i];
+		Ae[1] -= (px_double)PX_sind((i + 1.0) * omega) * A[i];
+	}
+
+	BrxAe[0] = Br[0] * Ae[0] - Br[1] * Ae[1];
+	BrxAe[1] = Br[0] * Ae[1] + Br[1] * Ae[0];
+
+	BexAr[0] = Be[0] * Ar[0] - Be[1] * Ar[1];
+	BexAr[1] = Be[0] * Ar[1] + Be[1] * Ar[0];
+
+	AxB[0] = Ae[0] * Be[0] - Ae[1] * Be[1];
+	AxB[1] = Ae[0] * Be[1] + Ae[1] * Be[0];
+
+	Num[0] = BrxAe[0] - BexAr[0]; 
+	Num[1] = BrxAe[1] - BexAr[1];
+
+	magd2 = AxB[0] * AxB[0] + AxB[1] * AxB[1];
+	c[0] = (Num[0] * AxB[0] + Num[1] * AxB[1]) / magd2;
+	c[1] = (Num[1] * AxB[0] - Num[0] * AxB[1]) / magd2;
+	
+	return c[0];
+}
+
+
+static px_double PX_PhaseIIR(px_double omega, px_double* B, px_int sizeB, px_double* A, px_int sizeA) {
+	px_double C[2];
+	px_double HB[2] = { 0 };
+	px_double HA[2] = { 0 };
+	px_double magd2;
+	px_int i;
+	for (i = 0; i < sizeB; i++) {
+		HB[0] += (px_double)PX_cosd((px_double)i * omega) * B[i];
+		HB[1] -= (px_double)PX_sind((px_double)i * omega) * B[i];
+	}
+
+	for (i = 0; i < sizeA; i++) {
+		HA[0] += (px_double)PX_cosd((i + 1.0) * omega) * A[i];
+		HA[1] -= (px_double)PX_sind((i + 1.0) * omega) * A[i];
+	}
+	magd2 = HA[0] * HA[0] + HA[1] * HA[1];
+
+	C[0] = (HB[0] * HA[0] + HB[1] * HA[1]) / magd2;
+	C[1] = (HB[1] * HA[0] - HB[0] * HA[1]) / magd2;
+
+	return (px_double)PX_atan2(C[1], C[0]);
+}
+px_double PX_PhaseDelayDerive(px_double omega, px_double* B, px_int sizeB, px_double* A, px_int sizeA, px_double delta) {
+	px_double omega1 = omega - delta;
+	px_double omega2 = omega + delta;
+	px_double p1 = PX_PhaseIIR(omega1, B, sizeB, A, sizeA);
+	px_double p2 = PX_PhaseIIR(omega2, B, sizeB, A, sizeA);
+	return (-omega1 * p2 + omega2 * p1) / (2 * delta * omega1 * omega2);
+}
+px_double PX_PhaseDelay(px_double f, px_double* B, px_int sizeB, px_double* A, px_int sizeA, px_double FS) {
+	px_double grpdel = PX_GroupDelay(f, B, sizeB, A, sizeA, FS);
+	px_double omega = (px_double)(2.0 * PX_PI * f / FS);
+	return grpdel - omega * PX_PhaseDelayDerive(omega, B, sizeB, A, sizeA, 0.0005f);
+}
+
+px_byte PX_ReadBitLE(px_uint32* bitpointer, const px_byte* bitstream)
+{
+	px_byte result = (px_byte)((bitstream[(*bitpointer) >> 3] >> ((*bitpointer) & 0x7)) & 1);
+	(*bitpointer)++;
+	return result;
+}
+
+px_uint32 PX_ReadBitsLE(px_uint32* bitpointer, const px_byte* bitstream, px_int nbits)
+{
+	px_uint32 result = 0;
+	px_int i;
+	for (i = 0; i < nbits; i++)
+		result |= ((px_uint32)PX_ReadBitLE(bitpointer, bitstream)) << i;
+	return result;
+}
+
+px_byte PX_ReadBitBE(px_uint32* bitpointer, const px_byte* bitstream)
+{
+	px_byte result = (px_byte)((bitstream[(*bitpointer) >> 3] >> (7-((*bitpointer) & 0x7))) & 1);
+	(*bitpointer)++;
+	return result;
+}
+
+px_uint32 PX_ReadBitsBE(px_uint32* bitpointer, const px_byte* bitstream, px_int nbits)
+{
+	px_uint32 result = 0;
+	px_int i;
+	for (i = 0; i < nbits; i++)
+		result = (result<<1)|PX_ReadBitBE(bitpointer, bitstream);
+	return result;
+}
+
+
+
+px_void PX_MemoryStreamInitialize(PX_MemoryStream* pStream, px_byte* bitstream,px_int size)
+{
+	pStream->bitpointer = 0;
+	pStream->bitstream = bitstream;
+	pStream->size = size;
+}
+px_byte PX_MemoryStreamReadBitLE(PX_MemoryStream* pStream)
+{
+	if (pStream->bitpointer/8<=pStream->size*8)
+	{
+		return PX_ReadBitLE((px_uint32 *)&pStream->bitpointer, pStream->bitstream);
+	}
+	else
+	{
+		return 0;
+	}
+}
+px_byte PX_MemoryStreamReadBitBE(PX_MemoryStream* pStream)
+{
+	if (pStream->bitpointer / 8 <= pStream->size * 8)
+	{
+		return PX_ReadBitBE((px_uint32*)&pStream->bitpointer, pStream->bitstream);
+	}
+	else
+	{
+		return 0;
+	}
+}
+px_void PX_MemoryStreamAlign(PX_MemoryStream* pStream)
+{
+	pStream->bitpointer = (pStream->bitpointer + 7u) & ~7u;
+}
+
+px_byte PX_MemoryStreamReadByte(PX_MemoryStream* pStream)
+{
+	PX_MemoryStreamAlign(pStream);
+	if (pStream->bitpointer / 8+8 <= pStream->size * 8)
+	{
+		px_byte result = (px_byte)PX_ReadBitsLE((px_uint32*)&pStream->bitpointer, pStream->bitstream, 8);
+		return result;
+	}
+	else
+	{
+		return 0;
+	}
+}
+px_uint32 PX_MemoryStreamReadBitsLE(PX_MemoryStream* pStream, px_int nbits)
+{
+	if (pStream->bitpointer / 8 + nbits <= pStream->size * 8)
+	{
+		px_uint32 result = PX_ReadBitsLE((px_uint32*)&pStream->bitpointer, pStream->bitstream, nbits);
+		return result;
+	}
+	else
+	{
+		return 0;
+	}
+}
+px_uint32 PX_MemoryStreamReadBitsBE(PX_MemoryStream* pStream, px_int nbits)
+{
+	if (pStream->bitpointer / 8 + nbits <= pStream->size * 8)
+	{
+		px_uint32 result = PX_ReadBitsBE((px_uint32*)&pStream->bitpointer, pStream->bitstream, nbits);
+		return result;
+	}
+	else
+	{
+		return 0;
+	}
+}
+
+px_word PX_MemoryStreamReadWord(PX_MemoryStream* pStream)
+{
+	px_byte b1, b2;
+	PX_MemoryStreamAlign(pStream);
+	b1=PX_MemoryStreamReadByte(pStream);
+	b2=PX_MemoryStreamReadByte(pStream);
+	return (b1<<8)+b2;
+}
+
+px_dword PX_MemoryStreamReadDWord(PX_MemoryStream* pStream)
+{
+	px_byte b1, b2,b3,b4;
+	PX_MemoryStreamAlign(pStream);
+	b1=PX_MemoryStreamReadByte(pStream);
+	b2=PX_MemoryStreamReadByte(pStream);
+	b3=PX_MemoryStreamReadByte(pStream);
+	b4=PX_MemoryStreamReadByte(pStream);
+	return (b1<<24)+(b2<<16)+(b3<<8)+b4;
+}
+
+px_bool PX_MemoryStreamIsEnd(PX_MemoryStream* pStream)
+{
+	if (pStream->bitpointer  >= pStream->size * 8)
+	{
+		return PX_TRUE;
+	}
+	else
+	{
+		return PX_FALSE;
+	}
+}
+
+px_dword PX_adler32(const px_byte* data, px_dword len) 
+{
+	px_dword s1 = 1 & 0xffffu;
+	px_dword s2 = (1 >> 16u) & 0xffffu;
+
+	while (len != 0u) {
+		px_dword i;
+		/*at least 5552 sums can be done before the sums overflow, saving a lot of module divisions*/
+		px_dword amount = len > 5552u ? 5552u : len;
+		len -= amount;
+		for (i = 0; i != amount; ++i) {
+			s1 += (*data++);
+			s2 += s1;
+		}
+		s1 %= 65521u;
+		s2 %= 65521u;
+	}
+
+	return (s2 << 16u) | s1;
+}
+
+
+px_double PX_MelToHz(px_double mel)
+{
+	return 700 * (PX_pow(10, mel / 2595) - 1);
+}
+px_double PX_HzToMel(px_double hz)
+{
+	return 2595 * PX_log10(1 + hz / 700);
+}
+
+px_void PX_SoundResamplerInitialize(PX_SoundResampler* pResampler, px_double in_sample_rate, px_double out_sample_rate)
+{
+	PX_memset(pResampler, 0, sizeof(PX_SoundResampler));
+	pResampler->in_sample_rate = in_sample_rate;
+	pResampler->out_sample_rate = out_sample_rate;
+	pResampler->x = 1;
+	pResampler->step = in_sample_rate / out_sample_rate;
+}
+
+px_void PX_SoundResamplerIn(PX_SoundResampler* pResampler, px_double in)
+{
+	if (pResampler->x >= 1)
+	{
+		pResampler->k = in - pResampler->last;
+		pResampler->last = in;
+		pResampler->x -= 1;
+	}
+}
+px_bool PX_SoundResamplerOut(PX_SoundResampler* pResampler, px_double* out)
+{
+	if (pResampler->x < 1)
+	{
+		*out = pResampler->last + pResampler->x * pResampler->k;
+	
+		pResampler->x += pResampler->step;
+		return PX_TRUE;
+	}
+	return PX_FALSE;
 }

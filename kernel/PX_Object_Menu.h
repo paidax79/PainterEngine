@@ -4,6 +4,8 @@
 
 #define PX_MENU_CONTENT_MAX_LEN 48
 #define PX_MENU_ITEM_SPACER_SIZE 2
+
+#define PX_MENU_ITEM_EXECUTE_FUNCTION(name) void name(px_void *userPtr)
 typedef px_void (*PX_MenuExecuteFunc)(px_void *userPtr);
 
 
@@ -35,7 +37,7 @@ typedef struct
 }PX_Object_Menu;
 
 
-PX_Object * PX_Object_MenuCreate(px_memorypool *mp,PX_Object *Parent,px_int x,int y,px_int width,PX_FontModule *fontmodule);
+PX_Object * PX_Object_MenuCreate(px_memorypool *mp,PX_Object *Parent,px_int x,px_int y,px_int width,PX_FontModule *fontmodule);
 PX_Object_Menu_Item * PX_Object_MenuGetRootItem(PX_Object *pMenuObject);
 PX_Object_Menu_Item * PX_Object_MenuAddItem(PX_Object *pMenuObject,PX_Object_Menu_Item *parent,const px_char Text[],PX_MenuExecuteFunc _callback,px_void *ptr);
 

@@ -2,11 +2,17 @@
 
 //////////////////////////////////////////////////////////////////////////
 //
+px_void PX_Object_SelectBarSliderOnChanged(PX_Object* pObject, PX_Object_Event e, px_void* ptr)
+{
+	PX_Object_SelectBar* pSelectbar = (PX_Object_SelectBar*)ptr;
+	pSelectbar->currentDisplayOffsetIndex = PX_Object_SliderBarGetValue(pObject);
+}
+
 PX_Object_SelectBar *PX_Object_GetSelectBar(PX_Object *pSelecrBar)
 {
 	if (pSelecrBar->Type==PX_OBJECT_TYPE_SELECTBAR)
 	{
-		return (PX_Object_SelectBar *)pSelecrBar->pObject;
+		return (PX_Object_SelectBar *)pSelecrBar->pObjectDesc;
 	}
 	return PX_NULL;
 }
@@ -136,7 +142,7 @@ static px_void PX_SelectbarOnCursorDown(PX_Object *pObject,px_float x,px_float y
 				PX_Object_Event e;
 				e.Event=PX_OBJECT_EVENT_VALUECHANGED;
 				PX_Object_Event_SetIndex(&e,index);
-				PX_ObjectPostEvent(pObject,e);
+				PX_ObjectExecuteEvent(pObject,e);
 			} while (0);
 		}
 		pSelectbar->onCursor=PX_FALSE;
@@ -192,7 +198,9 @@ static px_void PX_SelectbarOnCursorEvent(PX_Object *pSelectBarObject,PX_Object_E
 		break;
 	case PX_OBJECT_EVENT_CURSORWHEEL:
 		{
+		PX_Object_SelectBar* pDesc = PX_ObjectGetDesc(PX_Object_SelectBar, pSelectBarObject);
 			PX_SelectbarOnCursorWheel(pSelectBarObject,PX_Object_Event_GetCursorZ(e));
+			PX_Object_SelectBarSliderOnChanged(pDesc->sliderBar, PX_OBJECT_BUILD_EVENT(PX_OBJECT_EVENT_VALUECHANGED), pDesc);
 		}
 		break;
 	default:
@@ -337,13 +345,9 @@ static px_void PX_SelectbarRender(px_surface *pRenderSurface,PX_Object *pObject,
 
 }
 
-px_void PX_Object_SelectBarSliderOnChanged(PX_Object *pObject,PX_Object_Event e,px_void *ptr)
-{
-	PX_Object_SelectBar *pSelectbar=(PX_Object_SelectBar *)ptr;
-	pSelectbar->currentDisplayOffsetIndex=PX_Object_SliderBarGetValue(pObject);
-}
 
-PX_Object * PX_Object_SelectBarCreate(px_memorypool *mp,PX_Object *Parent,px_int x,int y,px_int width,px_int height,PX_FontModule *fontmodule)
+
+PX_Object * PX_Object_SelectBarCreate(px_memorypool *mp,PX_Object *Parent,px_int x,px_int y,px_int width,px_int height,PX_FontModule *fontmodule)
 {
 	PX_Object *pObject;
 	PX_Object_SelectBar *pSelectbar=(PX_Object_SelectBar *)MP_Malloc(mp,sizeof(PX_Object_SelectBar));
@@ -385,7 +389,7 @@ PX_Object * PX_Object_SelectBarCreate(px_memorypool *mp,PX_Object *Parent,px_int
 	}
 
 
-	pObject->pObject=pSelectbar;
+	pObject->pObjectDesc=pSelectbar;
 	pObject->Enabled=PX_TRUE;
 	pObject->Visible=PX_TRUE;
 	pObject->Type=PX_OBJECT_TYPE_SELECTBAR;
@@ -551,4 +555,108 @@ px_void PX_Object_SelectBarSetBackgroundColor(PX_Object *pObject,px_color color)
 		pSelectBar->backgroundColor=color;
 	}
 }
+
+px_void PX_Object_SelectBarSetMaxDisplayCount(PX_Object* pObject, px_int i)
+{
+	PX_Object_SelectBar* pSelectBar = PX_Object_GetSelectBar(pObject);
+	if (pSelectBar)
+	{
+		pSelectBar->maxDisplayCount = i;
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////
+//SelectBar
+//////////////////////////////////////////////////////////////////////////
+
+PX_Object* PX_Designer_SelectBarCreate(px_memorypool* mp, PX_Object* pparent, px_float x, px_float y, px_float width, px_float height, px_void* ptr)
+{
+	PX_FontModule* fm = (PX_FontModule*)ptr;
+	return PX_Object_SelectBarCreate(mp, pparent, (px_int)x, (px_int)y, 96, 24, fm);
+}
+
+px_void PX_Designer_SelectBarSetText(PX_Object* pobject, const px_char text[])
+{
+	px_char content[64];
+	px_int _strlen;
+	px_int i, j;
+	PX_Object_SelectBarClear(pobject);
+	i = 0;
+	_strlen = PX_strlen(text);
+	while (i < _strlen)
+	{
+		j = 0;
+		while (text[i] != '\n' && text[i] != '\0')
+		{
+			if (j >= PX_COUNTOF(content) - 1)
+			{
+				return;
+			}
+			content[j++] = text[i++];
+		}
+		content[j] = '\0';
+		if (text[i] == '\n')
+		{
+			i++;
+		}
+		PX_Object_SelectBarAddItem(pobject, content);
+	}
+}
+
+
+px_bool PX_Designer_SelectBarGetText(PX_Object* pobject, px_string* str)
+{
+	px_int i;
+	PX_Object_SelectBar* pdesc = PX_ObjectGetDesc(PX_Object_SelectBar, pobject);
+	for (i = 0; i < pdesc->Items.size; i++)
+	{
+		PX_StringCat(str, PX_Object_SelectBarGetItemText(pobject, i));
+		PX_StringCat(str, "\n");
+	}
+	PX_StringBackspace(str);
+	return PX_TRUE;
+}
+
+PX_Designer_ObjectDesc PX_Object_SelectBarDesignerInstall()
+{
+	PX_Designer_ObjectDesc selectbar;
+	px_int i = 0;
+	PX_memset(&selectbar, 0, sizeof(selectbar));
+	PX_strcat(selectbar.Name, "selectbar");
+
+	selectbar.createfunc = PX_Designer_SelectBarCreate;
+	selectbar.type = PX_DESIGNER_OBJECT_TYPE_UI;
+
+	PX_strcat(selectbar.properties[i].Name, "id");
+	selectbar.properties[i].getstring = PX_Designer_GetID;
+	selectbar.properties[i].setstring = PX_Designer_SetID;
+	i++;
+
+	PX_strcat(selectbar.properties[i].Name, "x");
+	selectbar.properties[i].getfloat = PX_Designer_GetX;
+	selectbar.properties[i].setfloat = PX_Designer_SetX;
+	i++;
+
+	PX_strcat(selectbar.properties[i].Name, "y");
+	selectbar.properties[i].getfloat = PX_Designer_GetY;
+	selectbar.properties[i].setfloat = PX_Designer_SetY;
+	i++;
+
+	PX_strcat(selectbar.properties[i].Name, "width");
+	selectbar.properties[i].getfloat = PX_Designer_GetWidth;
+	selectbar.properties[i].setfloat = PX_Designer_SetWidth;
+	i++;
+
+	PX_strcat(selectbar.properties[i].Name, "height");
+	selectbar.properties[i].getfloat = PX_Designer_GetHeight;
+	selectbar.properties[i].setfloat = PX_Designer_SetHeight;
+	i++;
+
+	PX_strcat(selectbar.properties[i].Name, "list");
+	selectbar.properties[i].setstring = PX_Designer_SelectBarSetText;
+	selectbar.properties[i].getstring = PX_Designer_SelectBarGetText;
+	i++;
+	return selectbar;
+}
+
 

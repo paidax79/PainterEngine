@@ -21,7 +21,7 @@ typedef struct
 }PX_Object_Label;
 
 PX_Object *	PX_Object_LabelCreate(px_memorypool *mp,PX_Object *Parent,px_int x,px_int y,px_int Width,px_int Height,const px_char *Text,PX_FontModule *fm,px_color Color);
-PX_Object_Label  *	PX_Object_GetLabel(PX_Object *Object);
+PX_Object_Label  *	PX_Object_GetLabel(PX_Object *pObject);
 px_char	  * PX_Object_LabelGetText(PX_Object *Label);
 px_void		PX_Object_LabelSetText(PX_Object *pLabel,const px_char *Text);
 px_void		PX_Object_LabelSetTextColor(PX_Object *pLabel,px_color Color);
@@ -30,7 +30,18 @@ px_void		PX_Object_LabelSetAlign(PX_Object *pLabel,PX_ALIGN Align);
 px_void		PX_Object_LabelSetBorder(PX_Object *pLabel,px_bool b);
 px_void		PX_Object_LabelSetBorderColor(PX_Object *pLabel,px_color color);
 px_void		PX_Object_LabelSetStyle(PX_Object *pLabel,PX_OBJECT_LABEL_STYLE style);
+px_int		PX_Object_LabelGetTextRenderWidth(PX_Object* pLabel);
+
+PX_Designer_ObjectDesc PX_Object_LabelDesignerInstall();
 
 
+typedef struct
+{
+	px_string text;
+	px_color color;
+	px_dword alive;
+	PX_FontModule* fm;
+}PX_Object_SliderText;
+PX_Object* PX_Object_SliderTextCreate(px_memorypool* mp, PX_Object* Parent, px_float x, px_float y, px_float vx, px_float vy, px_dword alive, const px_char* Text, PX_FontModule* fm, px_color Color);
 #endif
 

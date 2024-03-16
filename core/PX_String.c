@@ -14,34 +14,7 @@ px_void PX_StringTrim(px_string *str)
 {
 	if (str->buffer)
 	{
-		px_int loft=0;
-		px_int i;
-		while (str->buffer[loft]==' ')
-		{
-			loft++;
-		}
-		i=0;
-		while(PX_TRUE)
-		{
-			if (str->buffer[loft]=='\0'||loft>=str->bufferlen)
-			{
-				break;
-			}
-			str->buffer[i++]=str->buffer[loft++];
-		}
-		str->buffer[i]='\0';
-		i=PX_strlen(str->buffer);
-		if (i)
-		{
-			i--;
-		}
-		else
-			return;
-
-		while (i&&str->buffer[i]==' ')
-		{ 
-			str->buffer[i--]='\0';
-		}
+		PX_trim(str->buffer);
 	}
 	PX_StringUpdateExReg(str);
 }
@@ -85,6 +58,49 @@ px_void PX_StringTrimRight(px_string *str,px_int RightCount)
 	PX_StringUpdateExReg(str);
 }
 
+px_int PX_StringFind(px_string* str, const px_char find[])
+{
+	if (str->buffer)
+	{
+		px_char*p= PX_strstr(str->buffer, find);
+		if (p)
+		{
+			return (px_int)(p - str->buffer);
+		}
+	}
+	return -1;
+	
+}
+px_bool PX_StringRead(const px_char content[],  px_int readsize, px_char out[])
+{
+	if (readsize > PX_strlen(content))
+	{
+		return PX_FALSE;
+	}
+	PX_memcpy(out, content, readsize);
+	out[readsize] = '\0';
+	return PX_TRUE;
+}
+
+px_int PX_StringReadUntil(const px_char content[], px_char until,  px_char out[], px_int max_out_size)
+{
+	px_int i;
+	for (i = 0; i < max_out_size -1; i++)
+	{
+		if (content[i]=='\0')
+		{
+			return 0;
+		}
+		if (content[i] == until)
+		{
+			out[i] = '\0';
+			return i+1;
+		}
+		out[i] = content[i];
+	}
+	return 0;
+}
+
 px_void PX_StringFree(px_string *str)
 {
 	if(str->buffer&&str->bufferlen)
@@ -108,7 +124,7 @@ px_bool PX_StringInitialize(px_memorypool *mp,px_string *str)
 
 px_void PX_StringInitAlloc(px_memorypool *mp,px_string *str,px_int allocSize)
 {
-	int size=16;
+	px_int size=16;
 	while(size<allocSize)
 	{
 		size<<=1;
@@ -235,7 +251,9 @@ px_bool PX_StringCat(px_string *str,const px_char *str2)
 {
 	px_uchar shl=0;
 	px_char *old=str->buffer;
-	px_int length=PX_strlen(str->buffer)+PX_strlen(str2);
+	px_int length;
+
+	length = PX_strlen(str->buffer) + PX_strlen(str2);
 	if (length<str->bufferlen)
 	{
 		PX_strcat(str->buffer,str2);
@@ -254,6 +272,45 @@ px_bool PX_StringCat(px_string *str,const px_char *str2)
 	MP_Free(str->mp,old);
 	PX_StringUpdateExReg(str);
 	return PX_TRUE;
+}
+
+
+px_bool PX_StringCatLength(px_string* str, const px_char* str2,px_int cat_length)
+{
+	px_uchar shl = 0;
+	px_char* old = str->buffer;
+	px_int length;
+
+	length = PX_strlen(str->buffer) + cat_length;
+	if (length < str->bufferlen)
+	{
+		PX_strcatlen(str->buffer, str2, cat_length);
+		PX_StringUpdateExReg(str);
+		return PX_TRUE;
+	}
+
+	while ((px_int)(1 << ++shl) <= length);
+	str->bufferlen = (1 << shl);
+	str->buffer = (px_char*)MP_Malloc(str->mp, str->bufferlen);
+	if (!str->buffer)return PX_FALSE;
+	str->buffer[0] = '\0';
+	PX_strcat(str->buffer, old);
+	PX_strcatlen(str->buffer, str2, cat_length);
+	if (old)
+		MP_Free(str->mp, old);
+	PX_StringUpdateExReg(str);
+	return PX_TRUE;
+}
+
+
+
+px_char PX_StringLastChar(px_string* str)
+{
+	if (str->buffer&&str->buffer[0]!=0)
+	{
+		return str->buffer[PX_strlen(str->buffer)-1];
+	}
+	return 0;
 }
 
 px_void PX_StringClear(px_string *str)
@@ -330,10 +387,10 @@ px_bool PX_StringRemoveChar(px_string *str,px_int index)
 	return PX_FALSE;
 }
 
-px_void PX_StringReplace(px_string *str,px_char *source,px_char *replaceto)
+px_void PX_StringReplace(px_string *str,const px_char *source, const px_char *replaceto)
 {
 	px_string tempstr;
-	int i;
+	px_int i;
 	if (PX_StringLen(str)==0)
 	{
 		return;   
@@ -374,7 +431,7 @@ px_bool PX_StringInsert(px_string *str,px_int insertIndex,const px_char *InstrSt
 }
 
 
-px_void PX_StringReplaceRange(px_string *str,px_int startindex,px_int endindex,px_char *replaceto)
+px_void PX_StringReplaceRange(px_string *str,px_int startindex,px_int endindex,const px_char *replaceto)
 {
 	px_string tempStr;
 
@@ -404,7 +461,7 @@ px_void PX_StringReplaceRange(px_string *str,px_int startindex,px_int endindex,p
 
 #define PX_STRING_TRIMER_REG_COUNT 16
 
-px_bool PX_StringTrimer_Solve(px_string *pstring,px_char *parseCode,px_char *ReplaceCode)
+px_bool PX_StringTrimer_Solve(px_string *pstring, const px_char *parseCode, const px_char *ReplaceCode)
 {
 	px_int oft,j,k,resi,repj,regindex;
 	px_char regbuf[3];

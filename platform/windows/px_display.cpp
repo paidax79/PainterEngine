@@ -10,32 +10,43 @@ typedef struct
 	WPARAM wparam;
 }WM_MESSAGE;
 
-extern "C" BOOL PX_CreateWindow( int windowWidth,int windowHeight, int surfaceWidth,int surfaceHeight,const char *name);
-extern "C" BOOL PX_WindowResize(int surfaceWidth,int surfaceHeight,int windowWidth,int windowHeight);
+typedef enum
+{
+	PX_WINODW_STYLE_NORMAL,
+	PX_WINODW_STYLE_DESKTOPSPRITE,
+	PX_WINODW_STYLE_SIMPLEWINDOW,
+	PX_WINODW_STYLE_FIXED,
+	PX_WINODW_STYLE_NOBOARD,
+}PX_WINODW_STYLE;
+extern "C"
+{
+	BOOL PX_CreateWindow(int windowWidth, int windowHeight, int surfaceWidth, int surfaceHeight, const char* name);
+	BOOL PX_WindowResize(int surfaceWidth, int surfaceHeight, int windowWidth, int windowHeight);
 
-extern "C" int  PX_GetScreenHeight();
-extern "C" int  PX_GetScreenWidth();
-extern "C" int PX_SetWindowResizeable();
+	int  PX_GetScreenHeight();
+	int  PX_GetScreenWidth();
+	int PX_SetWindowResizeable();
 
-extern "C" HWND PX_GetWindowHwnd();
-extern "C" VOID PX_SystemReadDeviceState();
-extern "C" BOOL PX_SystemLoop();
-extern "C" BOOL PX_SystemRender(void *raw,int width,int height);
-extern "C" BOOL PX_SystemisAvtivated();
-extern "C" BOOL PX_KeyboardDown(unsigned char X );
-extern "C" char *PX_KeyboardString();
-extern "C" char *PX_DragfileString();
-extern "C" BOOL PX_MouseLButtonDown();
-extern "C" BOOL PX_MouseRButtonDown();
-extern "C" BOOL PX_MouseMButtonDown();
-extern "C" POINT PX_MousePosition();
-extern "C" BOOL PX_KeyDown(unsigned char key);
-extern "C" BOOL PX_MouseWheel(int *x,int *y,int *delta);
-extern "C" BOOL PX_GetWinMessage(WM_MESSAGE *Msg);
-extern "C" char *PX_OpenFileDialog(const char Filter[]);
-extern "C" char *PX_MultFileDialog(const char Filter[]);
-extern "C" char *PX_SaveFileDialog(const char Filter[],const char ext[]);
-extern "C" double PX_GetWindowScale();
+	HWND PX_GetWindowHwnd();
+	VOID PX_SystemReadDeviceState();
+	BOOL PX_SystemLoop();
+	BOOL PX_SystemRender(void* raw, int width, int height);
+	BOOL PX_SystemisAvtivated();
+	BOOL PX_KeyboardDown(unsigned char X);
+	char* PX_KeyboardString();
+	char* PX_DragfileString();
+	BOOL PX_MouseLButtonDown();
+	BOOL PX_MouseRButtonDown();
+	BOOL PX_MouseMButtonDown();
+	POINT PX_MousePosition();
+	BOOL PX_KeyDown(unsigned char key);
+	BOOL PX_MouseWheel(int* x, int* y, int* delta);
+	BOOL PX_GetWinMessage(WM_MESSAGE * Msg);
+	double PX_GetWindowScale();
+	void PX_SetWindowStyle(PX_WINODW_STYLE style);
+	void PX_SetWindowPosition(int x, int y);
+}
+ 
 #define         WIN_MAX_INPUT_STRING_LEN   64
 #define         WIN_MAX_INPUT_SPECKEY_LEN  0xff
 
@@ -48,7 +59,9 @@ extern "C" double PX_GetWindowScale();
 #define         WIN_KEYDOWN_DOWN         6
 
 
-#define			WIN_MESSAGESTACK_SIZE 32
+#define			WIN_MESSAGESTACK_SIZE 64
+
+
 
 HWND					Win_Hwnd;
 int						Win_Height;
@@ -57,8 +70,12 @@ double					Win_Scale;
 int						Surface_Height;
 int						Surface_Width;
 BOOL                    Win_Activated;
+PX_WINODW_STYLE			Win_Style;
+
 WM_MESSAGE				Win_messageStack[WIN_MESSAGESTACK_SIZE]={0};
-unsigned char		   DInput_KeyBoardState[256];
+int						Win_messageStackWIndex=0;
+int						Win_messageStackRIndex=0;
+
 char				   DInput_AccepyFile[MAX_PATH]={0};
 POINT				   DInput_MousePosition;
 POINT                  DInput_MouseWheelPosition;
@@ -113,6 +130,7 @@ BOOL PX_WindowResize(int surfaceWidth,int surfaceHeight,int windowWidth,int wind
 	Win_Width=windowWidth;
 	Win_Height=windowHeight;
 
+
 	GetClientRect(Win_Hwnd, &rc);
 
 	size.width=rc.right - rc.left;
@@ -160,12 +178,27 @@ BOOL PX_WindowResize(int surfaceWidth,int surfaceHeight,int windowWidth,int wind
 	return TRUE;
 
 }
+
+static BOOL CALLBACK EnumWindowsProc(_In_ HWND hwnd, _In_ LPARAM Lparam)
+{
+	HWND hDefView = FindWindowEx(hwnd, 0, TEXT("SHELLDLL_DefView"), 0);
+	if (hDefView != 0)
+	{
+		HWND hWorkerw = FindWindowEx(0, hwnd, TEXT("WorkerW"), 0);
+		ShowWindow(hWorkerw, SW_HIDE);
+
+		return FALSE;
+	}
+	return TRUE;
+}
+
 BOOL PX_CreateWindow( int surfaceWidth,int surfaceHeight,int windowWidth,int windowHeight,const char *name)
 {
 	HRESULT hr;
 	D2D1_SIZE_U size;
 	RECT rc;
-
+	DWORD style;
+	int window_x, window_y;
 	if (Win_Wcx.cbSize==0)
 	{
 		////////////////////////////////////////////////////////////////////////////
@@ -199,21 +232,54 @@ BOOL PX_CreateWindow( int surfaceWidth,int surfaceHeight,int windowWidth,int win
 	////////////////////////////////////////////////////////////////////////////
 	//Create window
 	////////////////////////////////////////////////////////////////////////////
+	switch (Win_Style)
+	{
+	case PX_WINODW_STYLE_NOBOARD:
+	case PX_WINODW_STYLE_DESKTOPSPRITE:
+	{
+		style = WS_CLIPSIBLINGS | WS_CLIPCHILDREN | WS_POPUP;
+		window_x = 0;
+		window_y = 0;
+	}
+	break;
+	case PX_WINODW_STYLE_SIMPLEWINDOW :
+	{
+		style = WS_OVERLAPPED | WS_SYSMENU ;
+		window_x = CW_USEDEFAULT;
+		window_y = CW_USEDEFAULT;
+	}
+	break;
+	case PX_WINODW_STYLE_FIXED:
+	{
+		style = WS_OVERLAPPED | WS_SYSMENU ;
+		window_x = CW_USEDEFAULT;
+		window_y = CW_USEDEFAULT;
+	}
+	break;
+	default:
+		style = WS_OVERLAPPED | WS_SYSMENU | WS_MAXIMIZEBOX ;
+		window_x = CW_USEDEFAULT;
+		window_y = CW_USEDEFAULT;
+		break;
+	}
+	
+
+	
 #ifdef _UNICODE
 	do 
 	{
 		WCHAR wname[128]={0};
 		MultiByteToWideChar(CP_ACP, 0,name, (int)strlen(name), wname,128);
 		Win_Hwnd = CreateWindowA("WindowCls", (LPCSTR)wname,
-			WS_OVERLAPPED|WS_SYSMENU|WS_MAXIMIZEBOX|WS_SIZEBOX,
-			CW_USEDEFAULT, CW_USEDEFAULT,
+			style,
+			window_x, window_y,
 			Win_Width, Win_Height,
 			NULL, NULL, GetModuleHandle(NULL), NULL);
 	} while (0);
 #else
 	Win_Hwnd = CreateWindowA("WindowCls", name,
-		WS_OVERLAPPED|WS_SYSMENU|WS_MAXIMIZEBOX|WS_SIZEBOX,
-		CW_USEDEFAULT, CW_USEDEFAULT,
+		style,
+		window_x, window_y,
 		Win_Width, Win_Height,
 		NULL, NULL, GetModuleHandle(NULL), NULL);
 #endif
@@ -306,6 +372,23 @@ BOOL PX_CreateWindow( int surfaceWidth,int surfaceHeight,int windowWidth,int win
 	}
 
 	PX_GetWindowScale();
+
+	do 
+	{
+		if (Win_Style==PX_WINODW_STYLE_DESKTOPSPRITE)
+		{
+			STARTUPINFO si = { 0 };
+			PROCESS_INFORMATION pi = { 0 };
+			HWND hProgman = FindWindow(TEXT("Progman"), 0);
+			if (!hProgman)
+				break;
+			SendMessageTimeout(hProgman, 0x52C, 0, 0, 0, 100, 0);
+
+			SetParent(Win_Hwnd, hProgman);
+			EnumWindows(EnumWindowsProc, 0);
+		}
+	} while (0);
+	
 	return TRUE;
 }
 /////////////////////////////////////////////////////////////
@@ -319,11 +402,13 @@ LRESULT CALLBACK AppWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPara
 // 	if(uMsg==0x246)
 // 	printf("%x\n",uMsg);
 	WM_MESSAGE message;
-	int i;
+
 
 	switch(uMsg) 
 	{
 	case WM_MOUSEMOVE:
+	case WM_MBUTTONDOWN:
+	case WM_MBUTTONUP:
 	case WM_LBUTTONDOWN:
 	case WM_LBUTTONUP:
 	case WM_RBUTTONDOWN:
@@ -394,14 +479,17 @@ LRESULT CALLBACK AppWindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPara
 	message.uMsg=uMsg;
 	message.wparam=wParam;
 	message.lparam=lParam;
-	for (i=0;i<WIN_MESSAGESTACK_SIZE;i++)
+	
+	if (Win_messageStack[Win_messageStackWIndex].uMsg==0)
 	{
-		if (Win_messageStack[i].uMsg==0)
+		Win_messageStack[Win_messageStackWIndex% WIN_MESSAGESTACK_SIZE]=message;
+		Win_messageStackWIndex++;
+		if (Win_messageStackWIndex>= WIN_MESSAGESTACK_SIZE)
 		{
-			Win_messageStack[i]=message;
-			break;
+			Win_messageStackWIndex = 0;
 		}
 	}
+	
 
 	return TRUE;
 }
@@ -449,8 +537,13 @@ BOOL PX_SystemRender(void *raw,int width,int height)
 			pData[i]=(pData[i]&0xFF00FF00)+((pData[i]>>16)&0x000000FF)+((pData[i]<<16)&0x00FF0000);
 		}
 	}
-	D2D_pSurface->CopyFromMemory(&size,raw,width*sizeof(DWORD));
-	D2D_pRenderTarget->DrawBitmap(D2D_pSurface,screenSize);
+	if (D2D_pSurface)
+	{
+		D2D_pSurface->CopyFromMemory(&size, raw, width * sizeof(DWORD));
+		D2D_pRenderTarget->DrawBitmap(D2D_pSurface, screenSize);
+	}
+	
+	
 	D2D_pRenderTarget->EndDraw();
 	
 	return TRUE;
@@ -463,7 +556,7 @@ BOOL PX_SystemisAvtivated()
 
 BOOL PX_KeyboardDown(unsigned char X)
 {
-	return (DInput_KeyBoardState[X]&0x80?TRUE:FALSE);
+	return (GetAsyncKeyState(X)&0x8000?TRUE:FALSE);
 }
 
 BOOL PX_MouseLButtonDown()
@@ -539,116 +632,20 @@ BOOL PX_MouseWheel(int *x,int *y,int *delta)
 
 BOOL PX_GetWinMessage(WM_MESSAGE *Msg)
 {
-	int i;
-	for (i=0;i<WIN_MESSAGESTACK_SIZE;i++)
+
+	if (Win_messageStack[Win_messageStackRIndex].uMsg!=0)
 	{
-		if (Win_messageStack[i].uMsg!=0)
+		*Msg = Win_messageStack[Win_messageStackRIndex];
+		memset(&Win_messageStack[Win_messageStackRIndex], 0, sizeof(WM_MESSAGE));
+		Win_messageStackRIndex++;
+		if (Win_messageStackRIndex >= WIN_MESSAGESTACK_SIZE)
 		{
-			*Msg=Win_messageStack[i];
-			memset(&Win_messageStack[i],0,sizeof(WM_MESSAGE));
-			return TRUE;
+			Win_messageStackRIndex = 0;
 		}
+		return TRUE;
 	}
+
 	return FALSE;
-}
-
-
-char *PX_OpenFileDialog(const char Filter[])
-{
-	OPENFILENAMEA ofn;
-	static char szFile[MAX_PATH];
-	ZeroMemory(&ofn,sizeof(ofn));
-	ofn.lStructSize = sizeof(ofn);
-	ofn.lpstrFile = szFile;
-	ofn.lpstrFile[0] = TEXT('\0');
-	ofn.nMaxFile = sizeof(szFile);
-	ofn.lpstrFilter = Filter;//TEXT("MirrorÎÄ¼þ(.mirror)\0*.mirror");
-	ofn.nFilterIndex = 1;
-	ofn.lpstrFileTitle = NULL;
-	ofn.nMaxFileTitle = 0;
-	ofn.lpstrInitialDir = NULL;
-	ofn.hwndOwner = Win_Hwnd;
-	ofn.Flags = OFN_EXPLORER |OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
-
-	if (GetOpenFileNameA(&ofn))
-	{
-		return szFile;
-	}
-	return NULL;
-}
-
-char *PX_MultFileDialog(const char Filter[])
-{
-	OPENFILENAMEA ofn;
-	static char szFile[MAX_PATH*64];
-	ZeroMemory(&ofn,sizeof(ofn));
-	ofn.lStructSize = sizeof(ofn);
-	ofn.lpstrFile = szFile;
-	ofn.lpstrFile[0] = TEXT('\0');
-	ofn.nMaxFile = sizeof(szFile);
-	ofn.lpstrFilter = Filter;//TEXT("MirrorÎÄ¼þ(.mirror)\0*.mirror");
-	ofn.nFilterIndex = 1;
-	ofn.lpstrFileTitle = NULL;
-	ofn.nMaxFileTitle = 0;
-	ofn.lpstrInitialDir = NULL;
-	ofn.hwndOwner = Win_Hwnd;
-	ofn.Flags = OFN_EXPLORER |OFN_PATHMUSTEXIST|OFN_ALLOWMULTISELECT|OFN_NOCHANGEDIR;
-
-	if (GetOpenFileNameA(&ofn))
-	{
-		if (szFile[strlen(szFile)+1]=='\0')
-		{
-			int oft=(int)strlen(szFile)-1;
-			while (oft>=0)
-			{
-				if (szFile[oft]=='\\'||szFile[oft]=='/')
-				{
-					szFile[oft]=0;
-					break;
-				}
-				oft--;
-			}
-		}
-		return szFile;
-	}
-	return NULL;
-}
-
-char *PX_SaveFileDialog(const char Filter[],const char ext[])
-{
-	OPENFILENAMEA ofn;
-	static char szFile[MAX_PATH];
-	ZeroMemory(&ofn,sizeof(ofn));
-	ofn.lStructSize = sizeof(ofn);
-	ofn.lpstrFile = szFile;
-	ofn.lpstrFile[0] = TEXT('\0');
-	ofn.nMaxFile = sizeof(szFile);
-	ofn.lpstrFilter = Filter;//TEXT("MirrorÎÄ¼þ(.mirror)\0*.mirror");
-	ofn.nFilterIndex = 1;
-	ofn.lpstrFileTitle = NULL;
-	ofn.nMaxFileTitle = 0;
-	ofn.lpstrInitialDir = NULL;
-	ofn.hwndOwner = Win_Hwnd;
-	ofn.Flags = OFN_EXPLORER |OFN_PATHMUSTEXIST |OFN_NOCHANGEDIR;
-
-	if (GetSaveFileNameA(&ofn))
-	{
-		if (ext)
-		{
-			char uprFile[MAX_PATH]={0};
-			char uprExt[MAX_PATH]={0};
-			strcpy_s(uprExt,ext);
-			_strupr_s(uprExt,MAX_PATH);
-			strcpy_s(uprFile,szFile);
-			_strupr_s(uprFile,MAX_PATH);
-			if (!strstr(uprFile,uprExt))
-			{
-				strcat_s(szFile,sizeof(szFile),ext);
-			}
-		}
-		return szFile;
-	}
-	return NULL;
 }
 
 
@@ -686,4 +683,16 @@ double PX_GetWindowScale()
 	
 	Win_Scale=horzScale;
 	return horzScale;
+}
+
+
+
+void PX_SetWindowStyle(PX_WINODW_STYLE style)
+{
+	Win_Style = style;
+}
+
+void PX_SetWindowPosition(int x,int y)
+{
+	SetWindowPos(Win_Hwnd,HWND_TOPMOST,x,y,0,0,SWP_NOSIZE);
 }

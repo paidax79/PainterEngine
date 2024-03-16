@@ -2,7 +2,7 @@
 
 
 
-px_void PX_ParticalLauncherInitializeDefault(PX_ParticalLauncher_InitializeInfo* info)
+px_void PX_ParticalLauncherInitializeDefaultInfo(PX_ParticalLauncher_InitializeInfo* info)
 {
 	PX_memset(info, 0, sizeof(PX_ParticalLauncher_InitializeInfo));
 	info->ak = 1;
@@ -16,24 +16,28 @@ px_void PX_ParticalLauncherInitializeDefault(PX_ParticalLauncher_InitializeInfo*
 	info->maxCount = 100;
 }
 
-px_bool PX_ParticalLauncherCreate(PX_Partical_Launcher *launcher,px_memorypool *mp,PX_ParticalLauncher_InitializeInfo Info)
+px_bool PX_ParticalLauncherInitialize(PX_ParticalLauncher *launcher,px_memorypool *mp,PX_ParticalLauncher_InitializeInfo Info)
 {
-	PX_memset(launcher,0,sizeof(PX_Partical_Launcher));
+	PX_memset(launcher,0,sizeof(PX_ParticalLauncher));
 	launcher->LauncherInfo=Info;
+	launcher->InitInfo = Info;
+	launcher->InitInfo.userptr = (px_void*)0x123;
 	launcher->mp=mp;
 
 	launcher->ParticalPool=(PX_Partical_Atom *)MP_Malloc(mp,sizeof(PX_Partical_Atom)*launcher->LauncherInfo.maxCount);
 	PX_memset(launcher->ParticalPool,0,sizeof(PX_Partical_Atom)*launcher->LauncherInfo.maxCount);
+
+
 	return PX_TRUE;
 }
 
 
-px_void PX_ParticalLauncherSetPosition(PX_Partical_Launcher *launcher,px_float x,px_float y,px_float z)
+px_void PX_ParticalLauncherSetPosition(PX_ParticalLauncher *launcher,px_float x,px_float y,px_float z)
 {
 	launcher->LauncherInfo.position=PX_POINT(x,y,z);
 }
 
-px_void PX_ParticalAtomUpdate(PX_Partical_Launcher *env,PX_Partical_Atom *pAtom,px_dword elapsed)
+px_void PX_ParticalAtomUpdate(PX_ParticalLauncher *env,PX_Partical_Atom *pAtom,px_dword elapsed)
 {
 	px_int updateTime;
 	px_int atomTime;
@@ -47,8 +51,11 @@ px_void PX_ParticalAtomUpdate(PX_Partical_Launcher *env,PX_Partical_Atom *pAtom,
 	{
 		if (pAtom->reg_alive<elapsed)
 		{
-			pAtom->reg_alive=0;
-			return;
+			if (pAtom->reg_alive>=0)
+			{
+				pAtom->reg_alive = 0;
+				return;
+			}
 		}
 		else
 		{
@@ -79,8 +86,8 @@ px_void PX_ParticalAtomUpdate(PX_Partical_Launcher *env,PX_Partical_Atom *pAtom,
 			pAtom->velocity.y+=pAtom->reg_a.y*atomTime/1000.f;
 			pAtom->velocity.z+=pAtom->reg_a.z*atomTime/1000.f;
 
-			ak=PX_PointMul(pAtom->velocity,1.0f-pAtom->reg_ak);
-			PX_PointMul(ak,atomTime/1000.f);
+			ak=PX_PointMul(pAtom->velocity,pAtom->reg_ak);
+			ak = PX_PointMul(ak,atomTime/1000.f);
 			pAtom->velocity.x-=ak.x;
 			pAtom->velocity.y-=ak.y;
 			pAtom->velocity.z-=ak.z;
@@ -126,7 +133,7 @@ px_void PX_ParticalAtomUpdate(PX_Partical_Launcher *env,PX_Partical_Atom *pAtom,
 
 }
 
-px_void PX_ParticalLauncherUpdate(PX_Partical_Launcher *launcher,px_dword elapsed)
+px_void PX_ParticalLauncherUpdate(PX_ParticalLauncher *launcher,px_dword elapsed)
 {
 	px_int i,j;
 	px_int redTime=0;
@@ -191,20 +198,23 @@ px_void PX_ParticalLauncherUpdate(PX_Partical_Launcher *launcher,px_dword elapse
 					{
 						px_float dirAngle;
 						px_float var;
+						px_float randAngle = (px_float)PX_randRange(0, 360);
 						PX_memset(&launcher->ParticalPool[j],0,sizeof(launcher->ParticalPool[j]));
 						launcher->lastgenIndex = j;
 						//position
 						launcher->ParticalPool[j].position = launcher->LauncherInfo.position;
+						launcher->ParticalPool[j].position.x +=(px_float)(launcher->LauncherInfo.deviation_position_distanceRange * PX_cosd(randAngle));
+						launcher->ParticalPool[j].position.y += (px_float)(launcher->LauncherInfo.deviation_position_distanceRange * PX_sind(randAngle));
 						//velocity
 						dirAngle = (px_float)PX_RadianToAngle(PX_atan2(launcher->LauncherInfo.direction.y, launcher->LauncherInfo.direction.x));
 						dirAngle += (px_float)PX_randRange(-launcher->LauncherInfo.deviation_rangAngle, launcher->LauncherInfo.deviation_rangAngle);
 						var = launcher->LauncherInfo.velocity;
-						var += (px_float)PX_randRange(-launcher->LauncherInfo.deviation_velocity, launcher->LauncherInfo.deviation_velocity);
+						var += (px_float)PX_randRange(launcher->LauncherInfo.deviation_velocity_min, launcher->LauncherInfo.deviation_velocity_max);
 						launcher->ParticalPool[j].velocity = PX_POINT(PX_cos_angle(dirAngle), PX_sin_angle(dirAngle), 0);
 						launcher->ParticalPool[j].velocity = PX_PointMul(launcher->ParticalPool[j].velocity, var);
 						//size
 						var = launcher->LauncherInfo.atomsize;
-						var += (px_float)PX_randRange(-launcher->LauncherInfo.deviation_atomsize, launcher->LauncherInfo.deviation_atomsize);
+						var += (px_float)PX_randRange(launcher->LauncherInfo.deviation_atomsize_min, launcher->LauncherInfo.deviation_atomsize_max);
 						if (var < 0)var = 0;
 						launcher->ParticalPool[j].reg_size = var;
 						//rotation
@@ -312,7 +322,16 @@ px_bool PX_ParticalIsInSurfaceRegion(px_point atomPoint,px_int atomWidth,px_int 
 	return PX_isRectCrossRect(atomRect,surfaceRect);
 }
 
-px_void PX_ParticalLauncherRender(px_surface *surface,PX_Partical_Launcher *launcher, px_dword elapsed)
+px_void PX_ParticalLauncherReset(PX_ParticalLauncher* launcher)
+{
+	PX_memset(launcher->ParticalPool, 0, sizeof(PX_Partical_Atom) * launcher->LauncherInfo.maxCount);
+	launcher->elapsed = 0;
+	launcher->genIndex = 0;
+	launcher->lastgenIndex = 0;
+	launcher->LauncherInfo = launcher->InitInfo;
+}
+
+px_void PX_ParticalLauncherRender(px_surface *surface,PX_ParticalLauncher *launcher, px_dword elapsed)
 {
 	px_int m,i;
 	PX_TEXTURERENDER_BLEND blend;
@@ -379,13 +398,13 @@ px_void PX_ParticalLauncherRender(px_surface *surface,PX_Partical_Launcher *laun
 
 }
 
-px_void PX_ParticalLauncherFree(PX_Partical_Launcher *env)
+px_void PX_ParticalLauncherFree(PX_ParticalLauncher *env)
 {
 	MP_Free(env->mp,env->ParticalPool);
 }
 
 
-px_void PX_ParticalLauncherSetDirection(PX_Partical_Launcher *launcher,px_point direction)
+px_void PX_ParticalLauncherSetDirection(PX_ParticalLauncher *launcher,px_point direction)
 {
 	launcher->LauncherInfo.direction=PX_PointNormalization(direction);
 }

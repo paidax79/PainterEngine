@@ -5,7 +5,7 @@ px_void PX_Object_LabelRender(px_surface *psurface, PX_Object *pObject,px_uint e
 	px_int x,y,w,h;
 	px_float inheritX,inheritY;
 	PX_SurfaceLimitInfo limitInfo;
-	PX_Object_Label *pLabel=(PX_Object_Label *)pObject->pObject;
+	PX_Object_Label *pLabel=(PX_Object_Label *)pObject->pObjectDesc;
 	if (pLabel==PX_NULL)
 	{
 		return;
@@ -101,7 +101,7 @@ PX_Object* PX_Object_LabelCreate(px_memorypool *mp,PX_Object *Parent,px_int x,px
 		MP_Free(mp,pLable);
 		return PX_NULL;
 	}
-	pObject->pObject=pLable;
+	pObject->pObjectDesc=pLable;
 	pObject->Type=PX_OBJECT_TYPE_LABEL;
 	pObject->ReceiveEvents=PX_FALSE;
 	pObject->Func_ObjectFree=PX_Object_LabelFree;
@@ -130,10 +130,10 @@ PX_Object* PX_Object_LabelCreate(px_memorypool *mp,PX_Object *Parent,px_int x,px
 }
 
 
-PX_Object_Label  * PX_Object_GetLabel( PX_Object *Object )
+PX_Object_Label  * PX_Object_GetLabel( PX_Object *pObject )
 {
-	if(Object->Type==PX_OBJECT_TYPE_LABEL)
-		return (PX_Object_Label *)Object->pObject;
+	if(pObject->Type==PX_OBJECT_TYPE_LABEL)
+		return (PX_Object_Label *)pObject->pObjectDesc;
 	else
 		return PX_NULL;
 }
@@ -162,7 +162,7 @@ px_void PX_Object_LabelSetText( PX_Object *pObject,const px_char *Text )
 	}
 
 	TextLen=PX_strlen(Text);
-	pLabel=(PX_Object_Label *)pObject->pObject;
+	pLabel=(PX_Object_Label *)pObject->pObjectDesc;
 	if(TextLen>PX_strlen(pLabel->Text))
 	{
 		MP_Free(pObject->mp,pLabel->Text);
@@ -236,3 +236,159 @@ px_void PX_Object_LabelSetStyle(PX_Object *pObject,PX_OBJECT_LABEL_STYLE style)
 		pLabel->style=style;
 	}
 }
+
+px_int PX_Object_LabelGetTextRenderWidth(PX_Object* pObject)
+{
+	PX_Object_Label* pLabel = PX_Object_GetLabel(pObject);
+	if (pLabel)
+	{
+		px_int w, h;
+		PX_FontModuleTextGetRenderWidthHeight(pLabel->fontModule, pLabel->Text, &w, &h);
+		return w;
+	}
+	return 0;
+}
+
+//////////////////////////////////////////////////////////////////////////
+//Label
+//////////////////////////////////////////////////////////////////////////
+PX_Object* PX_Designer_LabelCreate(px_memorypool* mp, PX_Object* pparent, px_float x, px_float y, px_float width, px_float height, px_void *ptr)
+{
+	PX_FontModule* fm = (PX_FontModule*)ptr;
+	return PX_Object_LabelCreate(mp, pparent, (px_int)x, (px_int)y, 128, 32, "Label", fm, PX_OBJECT_UI_DEFAULT_FONTCOLOR);
+}
+
+px_void PX_Designer_LabelSetText(PX_Object* pobject, const px_char text[])
+{
+	PX_Object_LabelSetText(pobject, text);
+}
+
+px_bool PX_Designer_LabelGetText(PX_Object* pobject, px_string* str)
+{
+	return PX_StringSet(str, PX_Object_LabelGetText(pobject));
+}
+
+px_void PX_Designer_LabelSetAlign(PX_Object* pobject, px_int align)
+{
+	switch (align)
+	{
+	case		PX_ALIGN_LEFTTOP:
+	case 		PX_ALIGN_MIDTOP:
+	case 		PX_ALIGN_RIGHTTOP:
+	case 		PX_ALIGN_LEFTMID:
+	case 		PX_ALIGN_CENTER:
+	case 		PX_ALIGN_RIGHTMID:
+	case 		PX_ALIGN_LEFTBOTTOM:
+	case 		PX_ALIGN_MIDBOTTOM:
+	case 		PX_ALIGN_RIGHTBOTTOM:
+	{
+		PX_Object_LabelSetAlign(pobject, (PX_ALIGN)align);
+	}
+	default:
+		break;
+	}
+
+}
+
+px_int PX_Designer_LabelGetAlign(PX_Object* pobject)
+{
+	return PX_Object_GetLabel(pobject)->Align;
+}
+
+PX_Designer_ObjectDesc PX_Object_LabelDesignerInstall()
+{
+	PX_Designer_ObjectDesc slabel;
+	px_int i = 0;
+	PX_memset(&slabel, 0, sizeof(slabel));
+	PX_strcat(slabel.Name, "label");
+	slabel.createfunc = PX_Designer_LabelCreate;
+	slabel.type = PX_DESIGNER_OBJECT_TYPE_UI;
+
+	PX_strcat(slabel.properties[i].Name, "id");
+	slabel.properties[i].getstring = PX_Designer_GetID;
+	slabel.properties[i].setstring = PX_Designer_SetID;
+	i++;
+
+	PX_strcat(slabel.properties[i].Name, "x");
+	slabel.properties[i].getfloat = PX_Designer_GetX;
+	slabel.properties[i].setfloat = PX_Designer_SetX;
+	i++;
+
+	PX_strcat(slabel.properties[i].Name, "y");
+	slabel.properties[i].getfloat = PX_Designer_GetY;
+	slabel.properties[i].setfloat = PX_Designer_SetY;
+	i++;
+
+	PX_strcat(slabel.properties[i].Name, "width");
+	slabel.properties[i].getfloat = PX_Designer_GetWidth;
+	slabel.properties[i].setfloat = PX_Designer_SetWidth;
+	i++;
+
+	PX_strcat(slabel.properties[i].Name, "height");
+	slabel.properties[i].getfloat = PX_Designer_GetHeight;
+	slabel.properties[i].setfloat = PX_Designer_SetHeight;
+	i++;
+
+	PX_strcat(slabel.properties[i].Name, "text");
+	slabel.properties[i].setstring = PX_Designer_LabelSetText;
+	slabel.properties[i].getstring = PX_Designer_LabelGetText;
+	i++;
+
+
+	PX_strcat(slabel.properties[i].Name, "align");
+	slabel.properties[i].setint = PX_Designer_LabelSetAlign;
+	slabel.properties[i].getint = PX_Designer_LabelGetAlign;
+	i++;
+
+	return slabel;
+}
+
+
+PX_OBJECT_RENDER_FUNCTION(PX_Object_SliderTextOnRender)
+{
+	PX_Object_SliderText* pDesc = (PX_Object_SliderText*)pObject->pObjectDesc;
+	px_float x, y, w, h;
+	PX_OBJECT_INHERIT_CODE(pObject, x, y, w, h);
+	PX_ObjectUpdatePhysics(pObject, elapsed);
+	if (elapsed>pDesc->alive)
+	{
+		PX_ObjectDelayDelete(pObject);
+		return;
+	}
+	PX_FontModuleDrawText(psurface, pDesc->fm, (px_int)x, (px_int)y, PX_ALIGN_LEFTMID, pDesc->text.buffer, pDesc->color);
+}
+
+PX_OBJECT_FREE_FUNCTION(PX_Object_SliderTextOnFree)
+{
+	PX_Object_SliderText* pDesc = (PX_Object_SliderText*)pObject->pObjectDesc;
+	PX_StringFree(&pDesc->text);
+}
+
+PX_Object* PX_Object_SliderTextCreate(px_memorypool* mp, PX_Object* Parent, px_float x, px_float y, px_float vx,px_float vy,px_dword alive, const px_char* Text, PX_FontModule* fm, px_color Color)
+{
+	PX_Object* pObject;
+	PX_Object_SliderText Desc = {0};
+	px_int fh, fw;
+	if (!PX_StringInitialize(mp, &Desc.text))return 0;
+	if (!PX_StringCat(&Desc.text, Text))
+	{
+		PX_StringFree(&Desc.text);
+		return 0;
+	}
+	Desc.fm = fm;
+	Desc.color = Color;
+	Desc.alive = alive;
+	PX_FontModuleTextGetRenderWidthHeight(fm, Text, &fw, &fh);
+	pObject = PX_ObjectCreateEx(mp, Parent,  x, y, 0,fw*1.0f, fh*1.0f, 0, 0, 0,PX_Object_SliderTextOnRender, PX_Object_SliderTextOnFree,&Desc,sizeof(Desc));
+	if (pObject)
+	{
+		pObject->vx = vx;
+		pObject->vy = vy;
+	}
+	else
+	{
+		PX_StringFree(&Desc.text);
+	}
+	return pObject;
+}
+

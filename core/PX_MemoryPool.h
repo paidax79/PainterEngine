@@ -13,14 +13,14 @@ typedef enum
 	PX_MEMORYPOOL_ERROR_INVALID_ADDRESS
 }PX_MEMORYPOOL_ERROR;
 
-typedef px_void (*PX_MP_ErrorCall)(PX_MEMORYPOOL_ERROR);
+typedef px_void (*PX_MP_ErrorCall)(px_void *ptr,PX_MEMORYPOOL_ERROR);
 
 #if defined(PX_DEBUG_MODE) && defined(PX_MEMORYPOOL_DEBUG_CHECK)
 typedef struct 
 {
-	px_void *addr;
 	px_void *startAddr;
 	px_void *endAddr;
+	px_dword offset;
 }MP_alloc_debug;
 
 
@@ -42,8 +42,10 @@ typedef struct _memoryPool
 	px_uint32 FreeTableCount;
 	px_uint32 MaxMemoryfragSize;
 	PX_MP_ErrorCall ErrorCall_Ptr;
+	px_void* userptr;
 #if defined(PX_DEBUG_MODE) && defined(PX_MEMORYPOOL_DEBUG_CHECK)
-	MP_alloc_debug DEBUG_allocdata[1024];
+	MP_alloc_debug DEBUG_allocdata[256];
+	px_bool enable_allocdata_tracert;
 #endif
 }px_memorypool;
 
@@ -60,7 +62,7 @@ px_void MP_UnreleaseInfo(px_memorypool *mp);
 //MemoryAddr :Start address of memory
 //MemorySize :Size of memory pool
 px_memorypool	MP_Create	(px_void *MemoryAddr,px_uint MemorySize);
-
+#define PX_MemorypoolCreate		MP_Create
 //Get memory size of Ptr
 //Pool: Pool MemoryPool structure pointer
 //Ptr: memory pointer
@@ -73,17 +75,18 @@ px_uint MP_Size(px_memorypool *Pool,px_void *Ptr);
 //Return - if succeeded return the begin address of memories
 //         if faith return null           
 px_void		*MP_Malloc	(px_memorypool *Pool,px_uint Size);
+#define		PX_Malloc(t,mp,s) ((t *)MP_Malloc(mp,s))
 
 //Free the memory from memory pool
 //Pool: Pool MemoryPool structure pointer
 //pAddress: Pointer memory need to be free
 px_void		MP_Free		(px_memorypool *Pool,px_void *pAddress);
+#define     PX_Free		MP_Free
 px_void		MP_Release	(px_memorypool *Pool);
 px_void     MP_Reset    (px_memorypool *Pool);
+px_void		MP_ResetZero(px_memorypool* Pool);
 
-
-//Register memoryPool error
-px_void    MP_ErrorCatch(px_memorypool *Pool,PX_MP_ErrorCall ErrorCall);
-
+//add memoryPool error
+px_void MP_ErrorCatch(px_memorypool* Pool, PX_MP_ErrorCall ErrorCall, px_void* ptr);
 #endif
 

@@ -2,6 +2,21 @@
 
 typedef struct
 {
+	union
+	{
+		struct
+		{
+			px_uchar r;
+			px_uchar g;
+			px_uchar b;
+			px_uchar a;
+		};
+		px_dword ucolor;
+	}_argb;
+}px_liveframework_rgba_color;
+
+typedef struct
+{
 	px_point position;
 	px_point normal;
 	px_float u,v;
@@ -629,7 +644,12 @@ static px_void PX_LiveFrameworkUpdateLayerInterpolation(PX_LiveFramework *plive,
 {
 	px_float schedule;
 	px_int i;
-	if (plive->reg_duration==0)
+
+	if (plive->status==PX_LIVEFRAMEWORK_STATUS_STOP)
+	{
+		schedule = 1;
+	}
+	else if (plive->reg_duration==0)
 	{
 		schedule=1;
 	}
@@ -715,6 +735,7 @@ static px_void PX_LiveFramework_UpdateLayerVertices(PX_LiveFramework *pLive,PX_L
 	px_point2D keyDirection;
 	px_int k;
 
+
 	PX_LiveFrameworkUpdateLayerRenderVerticesUV(pLive,pLayer);
 
 	if (pLayer->child_index[0]==-1)
@@ -749,7 +770,7 @@ static px_void PX_LiveFramework_UpdateLayerVertices(PX_LiveFramework *pLive,PX_L
 		resultPosition.y=plv->sourcePosition.y-pLayer->keyPoint.y;
 		resultPosition.z=plv->sourcePosition.z-pLayer->keyPoint.z;
 		//panc translation
-		if (pLayer->panc_currentx!=pLayer->panc_sx)
+		if (pLayer->panc_currentx!=pLayer->panc_sx|| pLayer->panc_currenty != pLayer->panc_sy)
 		{
 			if (plv->sourcePosition.x>pLayer->panc_x&& plv->sourcePosition.x < pLayer->panc_x+pLayer->panc_width)
 			{
@@ -774,8 +795,8 @@ static px_void PX_LiveFramework_UpdateLayerVertices(PX_LiveFramework *pLive,PX_L
 				}
 				else
 				{
-					px_float disy = (pLayer->panc_y + pLayer->panc_height) - plv->sourcePosition.x;
-					resultPosition.y += disy * (pLayer->panc_y + pLayer->panc_height - pLayer->panc_currenty) / (pLayer->panc_y + pLayer->panc_height - pLayer->panc_sy) - disy;
+					px_float disy = (pLayer->panc_y + pLayer->panc_height) - plv->sourcePosition.y;
+					resultPosition.y -= disy * (pLayer->panc_y + pLayer->panc_height - pLayer->panc_currenty) / (pLayer->panc_y + pLayer->panc_height - pLayer->panc_sy) - disy;
 				}
 			}
 
@@ -951,7 +972,11 @@ static px_bool PX_LiveFrameworkExecuteInstr(PX_LiveFramework *plive,px_int anima
 		goto _ERROR;
 	}
 	pAnimation=PX_VECTORAT(PX_LiveAnimation,&plive->liveAnimations,animation_index);
-	if (frameindex<0||frameindex>=pAnimation->framesMemPtr.size)
+	if (frameindex<0)
+	{
+		goto _ERROR;
+	}
+	if (frameindex >= pAnimation->framesMemPtr.size)
 	{
 		goto _ERROR;
 	}
@@ -1065,21 +1090,24 @@ static px_void PX_LiveFrameworkUpdateVM(PX_LiveFramework *plive,px_dword elapsed
 
 		if (plive->reg_elapsed>=plive->reg_duration)
 		{
-			//update time
-			plive->reg_elapsed-=plive->reg_duration;
+			px_dword duration = plive->reg_duration;
+			if (!PX_LiveFrameworkExecuteInstr(plive, plive->reg_animation, plive->reg_ip))
+			{
+				plive->status = PX_LIVEFRAMEWORK_STATUS_STOP;
+				goto _ERROR;
+			}
 
-			if(!PX_LiveFrameworkExecuteInstr(plive,plive->reg_animation,plive->reg_ip)) goto _ERROR;
+			//update time
+			plive->reg_elapsed -= duration;
+
 			//update ip
 			plive->reg_ip++;
 		}
 		else
 			break;
 	}
-
-	
 	return;
 _ERROR:
-	PX_LiveFrameworkStop(plive);
 	return;
 }
 
@@ -1393,13 +1421,11 @@ px_bool PX_LiveFrameworkPlayAnimation(PX_LiveFramework *plive,px_int index)
 {
 	if (index>=0&&index<plive->liveAnimations.size)
 	{
-		PX_LiveFrameworkReset(plive);
-
 		plive->currentEditFrameIndex=-1;
 		plive->currentEditLayerIndex=-1;
 		plive->currentEditVertexIndex=-1;
-
 		plive->reg_animation=index;
+		plive->reg_ip = 0;
 		plive->status=PX_LIVEFRAMEWORK_STATUS_PLAYING;
 		return PX_TRUE;
 	}
@@ -1412,7 +1438,7 @@ px_bool PX_LiveFrameworkPlayAnimationByName(PX_LiveFramework *plive,const px_cha
 	for (i=0;i<plive->liveAnimations.size;i++)
 	{
 		PX_LiveAnimation *pAnimation=PX_VECTORAT(PX_LiveAnimation,&plive->liveAnimations,i);
-		if (PX_strequ(name,pAnimation->id))
+		if (PX_strequ2(name,pAnimation->id))
 		{
 			PX_LiveFrameworkPlayAnimation(plive,i);
 			return PX_TRUE;
@@ -2235,6 +2261,7 @@ px_bool PX_LiveFrameworkExport(PX_LiveFramework *plive,px_memory *exportbuffer)
 		typedef struct  
 		{
 			px_char id[PX_LIVE_ID_MAX_LEN];
+			px_dword version;
 			px_int32 width;
 			px_int32 height;
 			px_int32 layerCount;
@@ -2245,9 +2272,10 @@ px_bool PX_LiveFrameworkExport(PX_LiveFramework *plive,px_memory *exportbuffer)
 		PX_LiveFrameworkBaseAttributes desc;
 
 		PX_memset(&desc,0,sizeof(PX_LiveFrameworkBaseAttributes));
-
-		PX_memcpy(desc.id,plive->id,PX_LIVE_ID_MAX_LEN);
 		
+		PX_memcpy(desc.id,plive->id,PX_LIVE_ID_MAX_LEN);
+		desc.version = PX_LIVE_VERSION;
+
 		desc.width=plive->width;
 		
 		desc.height=plive->height;
@@ -2293,7 +2321,18 @@ px_bool PX_LiveFrameworkExport(PX_LiveFramework *plive,px_memory *exportbuffer)
 			//export pixels data
 			do 
 			{
-				if(!PX_MemoryCat(exportbuffer,pTexture->Texture.surfaceBuffer,sizeof(px_color)*pTexture->Texture.height*pTexture->Texture.width))return PX_FALSE;
+				px_int k;
+				px_liveframework_rgba_color renderColor;
+				px_color *pColor =(px_color*)(pTexture->Texture.surfaceBuffer);
+				for (k = 0; k < pTexture->Texture.width * pTexture->Texture.height; k++)
+				{
+					renderColor._argb.r = pColor[k]._argb.r;
+					renderColor._argb.g = pColor[k]._argb.g;
+					renderColor._argb.b = pColor[k]._argb.b;
+					renderColor._argb.a = pColor[k]._argb.a;
+					if (!PX_MemoryCat(exportbuffer, &renderColor, sizeof(px_liveframework_rgba_color)))return PX_FALSE;
+				}
+				//if(!PX_MemoryCat(exportbuffer,pTexture->Texture.surfaceBuffer,sizeof(px_color)*pTexture->Texture.height*pTexture->Texture.width))return PX_FALSE;
 			} while (0);
 		}
 	} while (0);
@@ -2422,6 +2461,7 @@ px_bool PX_LiveFrameworkImport(px_memorypool *mp,PX_LiveFramework *plive,px_void
 		typedef struct  
 		{
 			px_char id[PX_LIVE_ID_MAX_LEN];
+			px_dword version;
 			px_int32 width;
 			px_int32 height;
 			px_int32 layerCount;
@@ -2433,6 +2473,11 @@ px_bool PX_LiveFrameworkImport(px_memorypool *mp,PX_LiveFramework *plive,px_void
 		rOffset+=sizeof(PX_LiveFrameworkBaseAttributes);if(rOffset>size) return PX_FALSE;
 
 		//////////////////////////////////////////////////////////////////////////
+		if (pReadLiveFrameworkAttributes->version != PX_LIVE_VERSION)
+		{
+			return PX_FALSE;
+		}
+
 		PX_memset(plive,0,sizeof(PX_LiveFramework));
 
 		PX_memcpy(plive->id,pReadLiveFrameworkAttributes->id,sizeof(plive->id));
@@ -2483,6 +2528,9 @@ px_bool PX_LiveFrameworkImport(px_memorypool *mp,PX_LiveFramework *plive,px_void
 			PX_LiveTexture *pTexture=PX_VECTORAT(PX_LiveTexture,&plive->livetextures,i);
 			do 
 			{
+				px_liveframework_rgba_color *pColor;
+				px_color *prenderColor;
+				px_int k;
 				//import live texture structure
 				PX_LiveTextureImportInfo *pLiveTextureImportInfo;
 				pLiveTextureImportInfo=((PX_LiveTextureImportInfo *)(bBuffer+rOffset));
@@ -2497,7 +2545,16 @@ px_bool PX_LiveFrameworkImport(px_memorypool *mp,PX_LiveFramework *plive,px_void
 				rOffset+=sizeof(PX_LiveTextureImportInfo);if(rOffset>size) 
 					goto _ERROR;
 				//import texture data
-				PX_memcpy(pTexture->Texture.surfaceBuffer,(bBuffer+rOffset),pTexture->Texture.width*pTexture->Texture.height*sizeof(px_color));
+				for (k = 0; k < pTexture->Texture.width * pTexture->Texture.height; k++)
+				{
+					pColor=(px_liveframework_rgba_color *)(bBuffer+rOffset);
+					prenderColor= pTexture->Texture.surfaceBuffer;
+					prenderColor[k]._argb.r=pColor[k]._argb.r;
+					prenderColor[k]._argb.g=pColor[k]._argb.g;
+					prenderColor[k]._argb.b=pColor[k]._argb.b;
+					prenderColor[k]._argb.a=pColor[k]._argb.a;
+				}
+				//PX_memcpy(pTexture->Texture.surfaceBuffer,(bBuffer+rOffset),pTexture->Texture.width*pTexture->Texture.height*sizeof(px_color));
 				rOffset+=pTexture->Texture.width*pTexture->Texture.height*sizeof(px_color);if(rOffset>size) 
 					goto _ERROR;
 			} while (0);
@@ -2681,6 +2738,11 @@ px_void PX_LiveFree(PX_Live *pLive)
 px_void PX_LivePlay(PX_Live*plive)
 {
 	PX_LiveFrameworkPlay(plive);
+}
+
+px_int PX_LiveGetAnimationCount(PX_Live* plive)
+{
+	return plive->liveAnimations.size;
 }
 
 px_bool PX_LivePlayAnimation(PX_Live *plive,px_int index)

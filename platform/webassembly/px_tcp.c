@@ -9,32 +9,30 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <errno.h>
-
 int PX_TCPInitialize(PX_TCP *tcp,PX_TCP_IP_TYPE type)
 {
-	int err;           
+	int err;
 	int nZero=0;
-	int nRecvBuf=1024*1024*2;
-	int nSendBuf=1024*1024*2;
+	int nRecvBuf=1024*1024;
+	int nSendBuf=1024*1024;
 	int optval=1;
 	int imode=1,rev;
 	tcp->type=type;
 
-	if ((tcp->socket=socket(AF_INET,SOCK_DGRAM,IPPROTO_TCP))==-1)
+	if ((tcp->socket=socket(AF_INET,SOCK_STREAM,IPPROTO_TCP))==-1)
 	{
         err = errno;
 		return 0;
 	}
-	  
-	rev=ioctl(tcp->socket,FIONBIO,(u_long *)&imode);
+
 	setsockopt(tcp->socket,SOL_SOCKET,SO_RCVBUF,(const char*)&nRecvBuf,sizeof(int));
 	setsockopt(tcp->socket,SOL_SOCKET,SO_SNDBUF,(const char*)&nSendBuf,sizeof(int));
 
 	if(rev == -1)
 	{
         close(tcp->socket);
-		return 0;  
-	}  
+		return 0;
+	}
 
 	return 1;
 }
@@ -51,8 +49,9 @@ int PX_TCPConnect(PX_TCP *tcp,PX_TCP_ADDR addr)
 	if (ret==0)
 	{
 		tcp->connectAddr=addr;
+		return 1;
 	}
-	return ret;
+	return 0;
 }
 
 int PX_TCPSend(PX_TCP *tcp,void *buffer,int size)
@@ -81,24 +80,34 @@ int PX_TCPSend(PX_TCP *tcp,void *buffer,int size)
 	}
 	return 0;
 }
-
+int PX_TCPSocketSend(unsigned int socket, void* buffer, int size)
+{
+	char* sendBuffer = (char*)buffer;
+	int length;
+	int sendsize = size;
+	do
+	{
+		if ((length = send(socket, (const char*)sendBuffer, size, 0)) == -1)
+		{
+			return 0;
+		}
+		sendBuffer += length;
+		size -= length;
+	} while (size > 0);
+	return sendsize;
+}
 int PX_TCPReceived(PX_TCP *tcp,void *buffer,int buffersize,int timeout)
 {
 	size_t ReturnSize;
 	struct timeval stimeout= {0,timeout*1000};
-	setsockopt(tcp->socket,SOL_SOCKET,SO_SNDTIMEO,(int *)&stimeout,sizeof(struct timeval));
+	setsockopt(tcp->socket,SOL_SOCKET,SO_SNDTIMEO,(int *)&stimeout,(socklen_t)sizeof(struct timeval));
 	
 	switch (tcp->type)
 	{
 	case PX_TCP_IP_TYPE_IPV4:
 		{
 			int SockAddrSize=sizeof(struct sockaddr_in);
-			if((ReturnSize=recv(tcp->socket,(char *)buffer,buffersize,0))!=-1)
-			{
-				return ReturnSize;;
-			}
-			else
-				return 0;
+			return recv(tcp->socket,(char *)buffer,buffersize,0);
 		}
 		break;
 	case PX_TCP_IP_TYPE_IPV6:
@@ -109,7 +118,15 @@ int PX_TCPReceived(PX_TCP *tcp,void *buffer,int buffersize,int timeout)
 	}
 	return 0;
 }
+int PX_TCPSocketReceived(unsigned int socket, void* buffer, int buffersize, int timeout)
+{
+	int SockAddrSize = sizeof(struct sockaddr_in);
+	size_t ReturnSize;
+	struct timeval stimeout = { 0,timeout * 1000 };
+	setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, (int*)&stimeout, sizeof(struct timeval));
 
+	return  recv(socket, (char*)buffer, buffersize, 0);
+}
 int PX_TCPAccept(PX_TCP *tcp,unsigned int *socket,PX_TCP_ADDR *fromAddr)
 {
 	struct sockaddr sockaddr;
@@ -146,4 +163,8 @@ PX_TCP_ADDR PX_TCP_ADDR_IPV4(unsigned int ipv4,unsigned short port)
 	addr.ipv4=ipv4;
 	addr.port=port;
 	return addr;
+}
+void PX_TCPSocketFree(unsigned int socket)
+{
+	close(socket);
 }

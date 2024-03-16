@@ -13,7 +13,7 @@ px_void PX_Object_WidgetFree(PX_Object *pObject)
 
 px_void  PX_Object_WidgetLinkChild(PX_Object *parent,PX_Object *child)
 {
-	PX_ObjectAddClild(PX_Object_WidgetGetRoot(parent),child);
+	PX_ObjectAddChild(PX_Object_WidgetGetRoot(parent),child);
 }
 
 px_void PX_Object_WidgetShow(PX_Object *pObject)
@@ -22,6 +22,7 @@ px_void PX_Object_WidgetShow(PX_Object *pObject)
 	if (pWidget)
 	{
 		pObject->Visible=PX_TRUE;
+		if(pWidget->focusWidget)
 		PX_ObjectSetFocus(pObject);
 	}
 }
@@ -48,8 +49,9 @@ px_void PX_Object_WidgetShowHideCloseButton(PX_Object *pObject,px_bool show)
 static px_void PX_Object_WidgetOnButtonClose(PX_Object *pObject,PX_Object_Event e,px_void *ptr)
 {
 	PX_Object *pWidgetObject=(PX_Object *)ptr;
+	PX_ObjectExecuteEvent(pWidgetObject, PX_OBJECT_BUILD_EVENT(PX_OBJECT_EVENT_CLOSE));
 	PX_Object_WidgetHide(pWidgetObject);
-	PX_ObjectExecuteEvent(pWidgetObject,PX_OBJECT_BUILD_EVENT(PX_OBJECT_EVENT_CLOSE));
+	
 }
 
 px_void PX_Object_Widget_EventDispatcher(PX_Object *pObject,PX_Object_Event e,px_void *ptr)
@@ -74,7 +76,8 @@ px_void PX_Object_Widget_EventDispatcher(PX_Object *pObject,PX_Object_Event e,px
 
 			if (PX_ObjectIsCursorInRegion(pObject,e))
 			{
-				PX_ObjectSetFocus(pObject);
+				if (pwidget->focusWidget)
+					PX_ObjectSetFocus(pObject);
 				x=PX_Object_Event_GetCursorX(e);
 				y=PX_Object_Event_GetCursorY(e);
 				if (!pwidget->bDraging)
@@ -97,6 +100,7 @@ px_void PX_Object_Widget_EventDispatcher(PX_Object *pObject,PX_Object_Event e,px
 			{
 				if (!pwidget->bmodel)
 				{
+					
 					PX_ObjectClearFocus(pObject);
 				}
 				
@@ -171,9 +175,19 @@ px_void PX_Object_WidgetRender(px_surface *psurface, PX_Object *pObject,px_uint 
 		}
 
 		pwidget->bevent_update=PX_FALSE;
+		
 		PX_SurfaceClear(&pwidget->renderTarget,0,0,pwidget->renderTarget.width-1,pwidget->renderTarget.height-1,pwidget->backgroundcolor);
+
 		PX_ObjectRender(&pwidget->renderTarget,pwidget->root,elapsed);
 		PX_SurfaceRender(psurface,&pwidget->renderTarget,(px_int)objx,(px_int)objy+PX_OBJECT_WIDGET_BAR_SIZE,PX_ALIGN_LEFTTOP,PX_NULL);
+		if (pwidget->showShader)
+		{
+			px_color sd = pwidget->backgroundcolor;
+			sd._argb.a = sd._argb.a/3*2;
+			PX_GeoDrawRect(psurface, (px_int)(objx + objWidth), (px_int)objy + 6, (px_int)(objx + objWidth + 6), (px_int)(objy + objHeight + 6), sd);
+			PX_GeoDrawRect(psurface, (px_int)(objx + 6), (px_int)(objy + objHeight), (px_int)(objx + objWidth - 1), (px_int)(objy + objHeight + 6), sd);
+		}
+		
 	} while (0);
 
 
@@ -189,11 +203,11 @@ px_void PX_Object_WidgetRender(px_surface *psurface, PX_Object *pObject,px_uint 
 }
 
 
-PX_Object * PX_Object_WidgetCreate(px_memorypool *mp,PX_Object *Parent,int x,int y,int width,int height,const px_char title[],PX_FontModule *fontmodule)
+PX_Object * PX_Object_WidgetCreate(px_memorypool *mp,PX_Object *Parent,px_int x,px_int y,px_int width,px_int height,const px_char title[],PX_FontModule *fontmodule)
 {
 	PX_Object *pObject;
 	PX_Object_Widget *pWidget=(PX_Object_Widget *)MP_Malloc(mp,sizeof(PX_Object_Widget));
-
+	PX_memset(pWidget,0,sizeof(PX_Object_Widget));
 	if(width<=0) width=1;
 	if(height<=PX_OBJECT_WIDGET_BAR_SIZE)height=PX_OBJECT_WIDGET_BAR_SIZE+1;
 
@@ -211,7 +225,7 @@ PX_Object * PX_Object_WidgetCreate(px_memorypool *mp,PX_Object *Parent,int x,int
 		return PX_NULL;
 	}
 
-	pObject->pObject=pWidget;
+	pObject->pObjectDesc=pWidget;
 	pObject->Type=PX_OBJECT_TYPE_WIDGET;
 	pObject->ReceiveEvents=PX_TRUE;
 	pObject->Func_ObjectFree=PX_Object_WidgetFree;
@@ -232,13 +246,14 @@ PX_Object * PX_Object_WidgetCreate(px_memorypool *mp,PX_Object *Parent,int x,int
 	pWidget->fontmodule=fontmodule;
 
 	pWidget->backgroundcolor=PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR;
-	pWidget->barColor=PX_COLOR(255,48,48,48);
+	pWidget->barColor=PX_COLOR(255,128,128,128);
 	pWidget->borderColor=PX_OBJECT_UI_DEFAULT_BORDERCOLOR;
 	pWidget->focusColor=PX_COLOR_WHITE;
 	pWidget->bevent_update=PX_TRUE;
 	pWidget->bmoveable=PX_TRUE;
 	pWidget->fontcolor=PX_OBJECT_UI_DEFAULT_FONTCOLOR;
-
+	pWidget->showShader = PX_TRUE;
+	pWidget->focusWidget = PX_TRUE;
 	PX_ObjectRegisterEvent(pWidget->btn_close,PX_OBJECT_EVENT_EXECUTE,PX_Object_WidgetOnButtonClose,pObject);
 	PX_ObjectRegisterEvent(pObject,PX_OBJECT_EVENT_ANY,PX_Object_Widget_EventDispatcher,PX_NULL);
 
@@ -252,11 +267,11 @@ _ERROR:
 	return PX_FALSE;
 }
 
-PX_Object_Widget * PX_Object_GetWidget(PX_Object *Object)
+PX_Object_Widget * PX_Object_GetWidget(PX_Object *pObject)
 {
-	if (Object->Type==PX_OBJECT_TYPE_WIDGET)
+	if (pObject->Type==PX_OBJECT_TYPE_WIDGET)
 	{
-		return (PX_Object_Widget *)Object->pObject;
+		return (PX_Object_Widget *)pObject->pObjectDesc;
 	}
 	return PX_NULL;
 }
@@ -296,6 +311,16 @@ px_int PX_Object_WidgetGetRenderTargetWidth(PX_Object *pObject)
 	if (pWidget)
 	{
 		return pWidget->renderTarget.width;
+	}
+	return 0;
+}
+
+px_surface* PX_Object_WidgetGetRenderTarget(PX_Object* pObject)
+{
+	PX_Object_Widget* pWidget = PX_Object_GetWidget(pObject);
+	if (pWidget)
+	{
+		return &pWidget->renderTarget;
 	}
 	return 0;
 }
@@ -351,5 +376,23 @@ px_void PX_Object_WidgetSetTitle(PX_Object *pObject,const px_char title[])
 	if (pWidget)
 	{
 		PX_strcpy(pWidget->title,title,sizeof(pWidget->title));
+	}
+}
+
+px_void PX_Object_WidgetShowShader(PX_Object* pObject, px_bool show)
+{
+	PX_Object_Widget* pWidget = PX_Object_GetWidget(pObject);
+	if (pWidget)
+	{
+		pWidget->showShader = show;
+	}
+}
+
+px_void PX_Object_WidgetSetFocusWidget(PX_Object* pObject, px_bool bf)
+{
+	PX_Object_Widget* pWidget = PX_Object_GetWidget(pObject);
+	if (pWidget)
+	{
+		pWidget->focusWidget = bf;
 	}
 }

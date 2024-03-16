@@ -5,9 +5,10 @@ px_bool PX_SoundPlayInitialize(px_memorypool *mp, PX_SoundPlay *pSoundPlay)
 	PX_memset(pSoundPlay,0,sizeof(PX_SoundPlay));
     pSoundPlay->mp=mp;
     pSoundPlay->bLock=PX_FALSE;
-    pSoundPlay->mix_mode=PX_SOUND_MIX_MODE_PARALLEL;
+    pSoundPlay->mix_mode=PX_SOUND_MIX_MODE_AVG;
     pSoundPlay->parallel=PX_SOUND_DEFAULT_PARALLEL;
     pSoundPlay->pause=PX_FALSE;
+	pSoundPlay->current_amplitude = 0;
 	PX_memset(pSoundPlay->Sounds, 0, sizeof(pSoundPlay->Sounds));
 	return PX_TRUE;
 }
@@ -24,66 +25,79 @@ px_void PX_SoundPlayPause(PX_SoundPlay *pSoundPlay,px_bool pause)
 	pSoundPlay->pause=pause;
 }
 
-px_bool PX_SoundPlayAdd(PX_SoundPlay *pSound,PX_Sound sounddata)
+px_void PX_SoundPlayPlayData(PX_SoundPlay* pSoundPlay, PX_SoundData* pdata)
+{
+	PX_SoundPlayAdd(pSoundPlay, PX_SoundCreate(pdata, 0));
+}
+
+px_void PX_SoundPlayRemove(PX_SoundPlay* pSoundPlay, px_int index)
+{
+	if (index>=0&&index<PX_COUNTOF(pSoundPlay->Sounds))
+	{
+		PX_memset(pSoundPlay->Sounds + index, 0, sizeof(pSoundPlay->Sounds[0]));
+	}
+}
+
+px_int PX_SoundPlayAdd(PX_SoundPlay *pSound,PX_Sound sounddata)
 {
 	px_int i;
-	px_int min_size=0,index=-1;
 	while(pSound->bLock);
 	pSound->bLock=PX_TRUE;
 
 	for (i=0;i<PX_COUNTOF(pSound->Sounds);i++)
 	{
-		if (pSound->Sounds[i].data==PX_NULL)
+		if (pSound->Sounds[i].datasize==0)
 		{
-			index=i;
-			break;
-		}
-		else
-		{
-			if (min_size==0&&!pSound->Sounds[i].loop)
-			{
-				min_size=pSound->Sounds[i].data->size-pSound->Sounds[i].offset;
-				index=i;
-			}
-			else
-			{
-				if (!pSound->Sounds[i].loop && pSound->Sounds[i].data->size-pSound->Sounds[i].offset<min_size)
-				{
-					min_size=pSound->Sounds[i].data->size-pSound->Sounds[i].offset;
-					index=i;
-				}
-			}
+			pSound->Sounds[i] = sounddata;
+			pSound->bLock = PX_FALSE;
+			return i;
 		}
 	}
-	if (index<PX_COUNTOF(pSound->Sounds))
-	{
-		pSound->Sounds[index]=sounddata;
-		pSound->bLock=PX_FALSE;
-		return PX_TRUE;
-	}
-	else
-	{
-		pSound->bLock=PX_FALSE;
-		return PX_FALSE;
-	}
-	
+
+	pSound->bLock = PX_FALSE;
+	return -1;
+}
+
+px_void PX_SoundPlaySetMixMode(PX_SoundPlay* pSoundPlay, PX_SOUND_MIX_MODE mode)
+{
+	pSoundPlay->mix_mode=mode;
 }
 
 
 px_bool PX_SoundPlayRead(PX_SoundPlay *pSoundPlay,px_byte *pBuffer,px_int readSize)
 {
-	px_int i,j,CpySize,ReadblockSize,SourceblockLen;
+	px_int i,j,ReadblockCount;
 	PX_Sound *pSound;
 	px_short *pSourcePCM16,*pTargetPCM16=(px_short *)pBuffer;
-	px_short div;
+	px_int div;
 	if (readSize%4)
 	{
 		return PX_FALSE;
 	}
+	ReadblockCount = readSize / 2 / 2;//2 channel 16bits
+	
+	if (ReadblockCount==0)
+	{
+		return PX_TRUE;
+	}
+	
 
 	if (pSoundPlay->userread)
 	{
+
 		pSoundPlay->userread(pSoundPlay->userptr,pBuffer,readSize);
+		for (i=0;i<readSize/4;i++)
+		{
+			pSoundPlay->amplitude_sum += PX_ABS(pTargetPCM16[i]);
+			pSoundPlay->amplitude_sample++;
+			if (pSoundPlay->amplitude_sample>2205)
+			{
+				pSoundPlay->current_amplitude = pSoundPlay->amplitude_sum / 2205.f/32768.f;
+				pSoundPlay->amplitude_sum = 0;
+				pSoundPlay->amplitude_sample = 0;
+			}
+		}
+
 		return PX_TRUE;
 	}
 
@@ -95,126 +109,97 @@ px_bool PX_SoundPlayRead(PX_SoundPlay *pSoundPlay,px_byte *pBuffer,px_int readSi
 	if (pSoundPlay->pause)
 	{
 		pSoundPlay->bLock=PX_FALSE;
+		pSoundPlay->current_amplitude = 0;
+		pSoundPlay->amplitude_sum = 0;
+		pSoundPlay->amplitude_sample = 0;
 		return PX_TRUE;
 	}
 
-	div=PX_COUNTOF(pSoundPlay->Sounds);
+	div = 0;
+	for (j = 0; j < PX_COUNTOF(pSoundPlay->Sounds); j++)
+	{
+		pSound = pSoundPlay->Sounds + j;
+		if (!pSound->datasize || pSound->pause)
+		{
+			continue;
+		}
+		div++;
+	}
 
 	for (j=0;j<PX_COUNTOF(pSoundPlay->Sounds);j++)
 	{
 		pSound=pSoundPlay->Sounds+j;
-		if (!pSound->data)
+
+		if (!pSound->datasize||pSound->pause)
 		{
 			continue;
 		}
-			
+
 		pSourcePCM16=(px_short *)pSound->data->buffer;
 
-		if (!pSound->loop)
+		if (pSound->datasize != -1)
 		{
-			px_int resvSize=pSound->data->size-pSound->offset;
-			if (pSound->data->channel==PX_SOUND_CHANNEL_ONE)
+			px_int resBlockCount;
+			resBlockCount = pSound->data->channel==PX_SOUND_CHANNEL_ONE?pSound->datasize/2:pSound->datasize/4;
+			if (ReadblockCount > resBlockCount)
 			{
-				if (resvSize*2>readSize)
-				{
-					CpySize=readSize;
-				}
-				else
-				{
-					CpySize=resvSize*2;
-				}
+				ReadblockCount=resBlockCount;
+				pSound->datasize = 0;
 			}
 			else
 			{
-				if (resvSize>readSize)
-				{
-					CpySize=readSize;
-				}
-				else
-				{
-					CpySize=resvSize;
-				}
-			}
-		}
-		else
-		{
-			CpySize=readSize;
-		}
-
-		ReadblockSize=CpySize/2;
-		SourceblockLen=pSound->data->size/2;
-		
-		if (pSound->data->channel==PX_SOUND_CHANNEL_ONE)
-		{
-			for (i=0;i<ReadblockSize;i+=2)
-			{
-				switch (pSoundPlay->mix_mode)
-				{
-				case PX_SOUND_MIX_MODE_PARALLEL:
-					pTargetPCM16[i]+=pSourcePCM16[pSound->offset/2]/pSoundPlay->parallel;
-					pTargetPCM16[i+1]+=pSourcePCM16[pSound->offset/2]/pSoundPlay->parallel;
-					pSound->offset+=2;
-					break;
-				case PX_SOUND_MIX_MODE_AVG:
-					pTargetPCM16[i]+=pSourcePCM16[pSound->offset/2]/div;
-					pTargetPCM16[i+1]+=pSourcePCM16[pSound->offset/2+1]/div;
-					pSound->offset+=2;
-					break;
-				}
-
-				if (pSound->offset>=pSound->data->size)
-				{
-					if (pSound->loop)
-					{
-						pSound->offset=0;
-					}
-					else
-					{
-						break;
-					}
-				}
-			}
-		}
-		else
-		{
-			for (i=0;i<ReadblockSize;i++)
-			{
-				switch (pSoundPlay->mix_mode)
-				{
-				case PX_SOUND_MIX_MODE_PARALLEL:
-					pTargetPCM16[i]+=pSourcePCM16[pSound->offset/2]/pSoundPlay->parallel;
-					pSound->offset+=2;
-					break;
-				case PX_SOUND_MIX_MODE_AVG:
-					pTargetPCM16[i]+=pSourcePCM16[pSound->offset/2]/div;
-					pSound->offset+=2;
-					break;
-				}
-				if (pSound->offset>=pSound->data->size)
-				{
-					if (pSound->loop)
-					{
-						pSound->offset=0;
-					}
-					else
-					{
-						break;
-					}
-				}
+				pSound->datasize -= ReadblockCount * 2 * (pSound->data->channel);
 			}
 		}
 
-		if (pSound->offset>=pSound->data->size)
+		for (i = 0; i < ReadblockCount; i++)
 		{
-			if (!pSoundPlay->Sounds[j].loop)
+			switch (pSoundPlay->mix_mode)
 			{
-				pSoundPlay->Sounds[j].data=PX_NULL;
+			case PX_SOUND_MIX_MODE_PARALLEL:
+				{
+					pTargetPCM16[i * 2] += pSourcePCM16[pSound->roffset / 2] / pSoundPlay->parallel;
+					if (pSound->data->channel == PX_SOUND_CHANNEL_DOUBLE)
+					{
+						pSound->roffset += 2;
+						pSound->roffset %= pSound->data->size;
+					}
+					pTargetPCM16[i * 2 + 1] += pSourcePCM16[pSound->roffset / 2] / pSoundPlay->parallel;
+					pSound->roffset += 2;
+					pSound->roffset %= pSound->data->size;
+				}
+				break;
+			case PX_SOUND_MIX_MODE_AVG:
+				{
+					pTargetPCM16[i * 2] += pSourcePCM16[pSound->roffset / 2] / div;
+					if (pSound->data->channel == PX_SOUND_CHANNEL_DOUBLE)
+					{
+						pSound->roffset += 2;
+						pSound->roffset %= pSound->data->size;
+					}
+					pTargetPCM16[i * 2 + 1] += pSourcePCM16[pSound->roffset / 2] / div;
+					pSound->roffset += 2;
+					pSound->roffset %= pSound->data->size;
+				}
+				break;
 			}
-			continue;
 		}
 	}
 		
 	pSoundPlay->bLock=PX_FALSE;
+
+	for (i = 0; i < readSize / 4; i++)
+	{
+		pSoundPlay->amplitude_sum += PX_ABS(pTargetPCM16[i]);
+		pSoundPlay->amplitude_sample++;
+		if (pSoundPlay->amplitude_sample > 2205)
+		{
+			pSoundPlay->current_amplitude = pSoundPlay->amplitude_sum / 2205.f / 32768.f;
+			pSoundPlay->amplitude_sum = 0;
+			pSoundPlay->amplitude_sample = 0;
+		}
+	}
+
 	return PX_TRUE;
 }
 
@@ -237,7 +222,7 @@ px_bool PX_SoundPlayReadCurrentPlayingData(PX_SoundPlay *pSoundPlay,px_int sound
 	}
 
 	pData=pSoundPlay->Sounds[soundIndex].data;
-	offset=pSoundPlay->Sounds[soundIndex].offset;
+	offset=pSoundPlay->Sounds[soundIndex].roffset;
 	switch (pData->channel)
 	{
 	case PX_SOUND_CHANNEL_ONE:
@@ -277,12 +262,12 @@ px_void PX_SoundPlayFree(PX_SoundPlay *pSoundPlay)
 
 px_void PX_SoundPlayClear(PX_SoundPlay *pSoundPlay)
 {
-	px_int count=0,j;
-	for (j=0;j<PX_COUNTOF(pSoundPlay->Sounds);j++)
-	{
-		pSoundPlay->Sounds[j].data=PX_NULL;
-		pSoundPlay->Sounds[j].offset=0;
-	}
+	PX_memset(pSoundPlay->Sounds,0,sizeof(pSoundPlay->Sounds));
+}
+
+px_float PX_SoundPlayGetCurrentAmplitude(PX_SoundPlay* pSoundPlay)
+{
+	return pSoundPlay->current_amplitude;
 }
 
 px_int PX_SoundPlayGetDataCount(PX_SoundPlay *pSoundPlay)
@@ -305,15 +290,123 @@ px_int PX_SoundPlayGetDataCount(PX_SoundPlay *pSoundPlay)
 
 PX_Sound PX_SoundCreate(PX_SoundData *data,px_bool loop)
 {
-	PX_Sound sound;
+	PX_Sound sound = {0};
 	sound.data=data;
-	sound.offset=0;
-	sound.loop=loop;
+	sound.roffset=0;
+	if(loop)
+		sound.datasize = -1;
+	else
+		sound.datasize = data->size;
+
+
+	sound.woffset = 0;
 	return sound;
 }
 
+px_void PX_SoundPause(PX_SoundPlay* pSoundPlay, px_int index)
+{
+	if (index>=0&&index<PX_COUNTOF(pSoundPlay->Sounds))
+	{
+		pSoundPlay->Sounds[index].pause=PX_TRUE;
+	}
+}
 
-px_bool PX_SoundStaticDataCopy(px_memorypool *mp,PX_SoundData *resSounddata,PX_SoundData *targetSounddata)
+px_void PX_SoundReset(PX_SoundPlay* pSoundPlay, px_int index)
+{
+	if (index >= 0 && index < PX_COUNTOF(pSoundPlay->Sounds))
+	{
+		pSoundPlay->Sounds[index].roffset = 0;
+	}
+}
+
+px_void PX_SoundResume(PX_SoundPlay* pSoundPlay, px_int index)
+{
+	if (index >= 0 && index < PX_COUNTOF(pSoundPlay->Sounds))
+	{
+		pSoundPlay->Sounds[index].pause = PX_FALSE;
+	}
+}
+
+
+PX_SoundData PX_SoundDataCreate(PX_SOUND_CHANNEL channel, px_byte* data, px_int datasize)
+{
+	PX_SoundData sdata;
+	sdata.buffer = data;
+	sdata.channel = channel;
+	sdata.mp = PX_NULL;
+	sdata.size = datasize;
+	return sdata;
+}
+
+px_int PX_SoundDataReadSamples(PX_SoundData* sounddata, px_int byte_offset, px_int readcount, px_float unit_out[],px_int channel)
+{
+	if (sounddata->channel == PX_SOUND_CHANNEL_ONE)
+	{
+		if (byte_offset % 2)
+		{
+			return 0;
+		}
+	}
+
+	if (sounddata->channel==PX_SOUND_CHANNEL_DOUBLE)
+	{
+		if (byte_offset % 4)
+		{
+			return 0;
+		}
+	}
+
+	if (sounddata->channel == PX_SOUND_CHANNEL_ONE)
+	{
+		if (channel==1)
+		{
+			channel = 0;
+		}
+	}
+
+
+	if (sounddata->channel==PX_SOUND_CHANNEL_ONE)
+	{
+		px_int readbyte=0;
+		px_short* pPCM = (px_short*)sounddata->buffer;
+		px_int ssize = sounddata->size / 2;
+		px_int soffset = byte_offset/2;
+		while (soffset<ssize)
+		{
+			unit_out[readbyte / 2] = pPCM[soffset]/32768.f;
+			soffset++;
+			readbyte += 2;
+		}
+		return readbyte;
+	}
+	else if (sounddata->channel == PX_SOUND_CHANNEL_DOUBLE)
+	{
+		px_int readbyte = 0;
+		px_short* pPCM = (px_short*)sounddata->buffer;
+		px_int ssize = sounddata->size / 2;
+		px_int soffset = byte_offset / 2;
+		while (soffset < ssize)
+		{
+			if (readcount==0)
+			{
+				break;
+			}
+			unit_out[readbyte / 4] = pPCM[soffset+ channel] / 32768.f;
+			soffset+=2;
+			readbyte += 4;
+			readcount--;
+		}
+		return readbyte;
+	}
+	else
+	{
+		return 0;
+	}
+	return 0;
+}
+
+
+px_bool PX_SoundDataCopy(px_memorypool *mp,PX_SoundData *resSounddata,PX_SoundData *targetSounddata)
 {
 	targetSounddata->buffer=(px_byte *)MP_Malloc(mp,resSounddata->size);
 	if(!targetSounddata->buffer)
@@ -327,7 +420,7 @@ px_bool PX_SoundStaticDataCopy(px_memorypool *mp,PX_SoundData *resSounddata,PX_S
 	return PX_TRUE;
 }
 
-px_bool PX_SoundStaticDataCreate(PX_SoundData *sounddata,px_memorypool *mp,px_byte *data,px_int datasize)
+px_bool PX_SoundDataCreateFromWavFileData(PX_SoundData *sounddata,px_memorypool *mp,px_byte *data,px_int datasize)
 {
 	if (PX_WaveVerify(data,datasize))
 	{
@@ -384,7 +477,7 @@ _ERROR:
 	return PX_FALSE;
 }
 
-px_void PX_SoundStaticDataFree(PX_SoundData *sounddata)
+px_void PX_SoundDataFree(PX_SoundData *sounddata)
 {
 	if (sounddata->mp)
 	{
@@ -395,4 +488,47 @@ px_void PX_SoundStaticDataFree(PX_SoundData *sounddata)
 	}
 	
 }
+
+px_bool PX_SoundCircularWrite(PX_Sound* pSound, px_byte* pBuffer, px_int writeSize)
+{
+	px_int len1, len2;
+
+	if (writeSize>pSound->data->size)
+	{
+		return PX_FALSE;
+	}
+
+	len1 = pSound->data->size - pSound->woffset;
+	len2 = writeSize - len1;
+	
+	if (writeSize>len1)
+	{
+		PX_memcpy(pSound->data->buffer + pSound->woffset, pBuffer, len1);
+		writeSize -= len1;
+		PX_memcpy(pSound->data->buffer, pBuffer + len1, writeSize);
+	}
+	else
+	{
+		PX_memcpy(pSound->data->buffer + pSound->woffset, pBuffer, writeSize);
+	}
+
+	pSound->woffset = (pSound->woffset + writeSize) % pSound->data->size;
+
+	if (pSound->datasize != -1)
+	{
+		pSound->datasize += writeSize;
+		if (pSound->datasize > (px_uint)pSound->data->size)
+		{
+			pSound->datasize = pSound->data->size;
+		}
+	}
+		
+	return PX_TRUE;
+}
+
+px_bool PX_SoundCircularWriteSample(PX_Sound* pSound, px_short sample)
+{
+	return PX_SoundCircularWrite(pSound, (px_byte*)&sample, 2);
+}
+
 

@@ -1,17 +1,14 @@
 #include "PX_MemoryPool.h"
 
 #if defined(PX_DEBUG_MODE) && defined(PX_MEMORYPOOL_DEBUG_CHECK)
-
 #include "stdio.h"
-static px_int DEBUG_i;
-static px_int DEBUG_assert;
 px_void MP_UnreleaseInfo(px_memorypool *mp)
 {
 	px_int i;
 	for (i=0;i<sizeof(mp->DEBUG_allocdata)/sizeof(mp->DEBUG_allocdata[0]);i++)
 	{
-		if(mp->DEBUG_allocdata[i].addr) 
-			printf("Warning:Unreleased memory in MID %p\n",mp->DEBUG_allocdata[i].addr);
+		if(mp->DEBUG_allocdata[i].offset) 
+			printf("Warning:Unreleased memory in MID %d\n",mp->DEBUG_allocdata[i].offset);
 
 	}
 }
@@ -167,6 +164,15 @@ px_memorypool MP_Create( px_void *MemoryAddr,px_uint MemorySize )
 {
 	px_uint Index=0;
 	px_memorypool MP;
+#if defined(PX_DEBUG_MODE) && defined(PX_MEMORYPOOL_DEBUG_CHECK)
+	px_int DEBUG_i;
+#endif
+	PX_memset(&MP, 0, sizeof(MP));
+	if (MemorySize==0)
+	{
+		return MP;
+	}
+
 	MP.StartAddr=MemoryAddr;
 	MP.AllocAddr=MemoryAddr;
 	if(MemorySize)
@@ -180,16 +186,15 @@ px_memorypool MP_Create( px_void *MemoryAddr,px_uint MemorySize )
 	MP.MaxMemoryfragSize=0;
 	MP.nodeCount=0;
 	MP.ErrorCall_Ptr=PX_NULL;
-	PX_memset(MemoryAddr,0,MemorySize);
-
 #if defined(PX_DEBUG_MODE) && defined(PX_MEMORYPOOL_DEBUG_CHECK)
-
+	PX_memset(MemoryAddr, 0, MemorySize);
 	for (DEBUG_i=0;DEBUG_i<sizeof(MP.DEBUG_allocdata)/sizeof(MP.DEBUG_allocdata[0]);DEBUG_i++)
 	{
-		MP.DEBUG_allocdata[DEBUG_i].addr=PX_NULL;
+		MP.DEBUG_allocdata[DEBUG_i].offset=0;
 		MP.DEBUG_allocdata[DEBUG_i].startAddr=PX_NULL;
 		MP.DEBUG_allocdata[DEBUG_i].endAddr=PX_NULL;
 	}
+	MP.enable_allocdata_tracert = PX_TRUE;
 #endif
 	return MP;
 
@@ -203,6 +208,7 @@ px_void * MP_Malloc(px_memorypool *MP, px_uint Size )
 #if defined(PX_DEBUG_MODE) && defined(PX_MEMORYPOOL_DEBUG_CHECK)
 	MP_Append_data *pAppend;
 	MemoryNode *itNode;
+	px_int DEBUG_i;
 	if (MP==PX_NULL)
 	{
 		PX_ASSERT();
@@ -210,11 +216,11 @@ px_void * MP_Malloc(px_memorypool *MP, px_uint Size )
 	}
 	for (DEBUG_i=0;DEBUG_i<sizeof(MP->DEBUG_allocdata)/sizeof(MP->DEBUG_allocdata[0]);DEBUG_i++)
 	{
-		if (MP->DEBUG_allocdata[DEBUG_i].addr!=PX_NULL)
+		if (MP->DEBUG_allocdata[DEBUG_i].startAddr!=PX_NULL)
 		{
 			MP_Append_data *pAppend;
 			pAppend=(MP_Append_data *)((px_uchar *)MP->DEBUG_allocdata[DEBUG_i].endAddr-sizeof(MP_Append_data)+1);
-			itNode=(MemoryNode *)((px_uchar *)MP->DEBUG_allocdata[DEBUG_i].addr-sizeof(MemoryNode));
+			itNode=(MemoryNode *)((px_uchar *)MP->DEBUG_allocdata[DEBUG_i].startAddr -sizeof(MemoryNode));
 			if(MP->DEBUG_allocdata[DEBUG_i].startAddr!=itNode->StartAddr) 
 			{
 					PX_ASSERT();
@@ -222,7 +228,7 @@ px_void * MP_Malloc(px_memorypool *MP, px_uint Size )
 			}
 			if(MP->DEBUG_allocdata[DEBUG_i].endAddr!=itNode->EndAddr) 
 			{
-					PX_ASSERT();
+					//PX_ASSERT();
 					return PX_NULL;
 			}
 			if(pAppend->append!=MP_APPENDDATA_MAGIC)
@@ -236,6 +242,7 @@ px_void * MP_Malloc(px_memorypool *MP, px_uint Size )
 #endif
 	if (Size==0)
 	{
+		//zero size
 		return PX_NULL;
 	}
 #if defined(PX_DEBUG_MODE) && defined(PX_MEMORYPOOL_DEBUG_CHECK)
@@ -253,18 +260,25 @@ px_void * MP_Malloc(px_memorypool *MP, px_uint Size )
 #if defined(PX_DEBUG_MODE) && defined(PX_MEMORYPOOL_DEBUG_CHECK)
 		for (DEBUG_i=0;DEBUG_i<sizeof(MP->DEBUG_allocdata)/sizeof(MP->DEBUG_allocdata[0]);DEBUG_i++)
 		{
-			if(MP->DEBUG_allocdata[DEBUG_i].addr==0)
+			if(MP->DEBUG_allocdata[DEBUG_i].startAddr ==0)
 			{
-				MP->DEBUG_allocdata[DEBUG_i].addr=MemNode->StartAddr;
+				MP->DEBUG_allocdata[DEBUG_i].offset=(px_dword)((px_byte *)MemNode->StartAddr- (px_byte*)MP->StartAddr);
 				MP->DEBUG_allocdata[DEBUG_i].startAddr=MemNode->StartAddr;
 				MP->DEBUG_allocdata[DEBUG_i].endAddr=MemNode->EndAddr;
+
 				break;
 			}
+		}
+		if (DEBUG_i ==PX_COUNTOF(MP->DEBUG_allocdata))
+		{
+			MP->enable_allocdata_tracert = PX_FALSE;
+			//PX_ERROR("Not enough of memory debug node!");
 		}
 		pAppend=(MP_Append_data *)((px_uchar *)MemNode->EndAddr-sizeof(MP_Append_data)+1);
 		pAppend->append=MP_APPENDDATA_MAGIC;
 	#endif
-		MP->nodeCount++;
+		MP->nodeCount++; 
+	
 		return MemNode->StartAddr;
 	}
 
@@ -276,13 +290,19 @@ px_void * MP_Malloc(px_memorypool *MP, px_uint Size )
 #if defined(PX_DEBUG_MODE) && defined(PX_MEMORYPOOL_DEBUG_CHECK)
 		for (DEBUG_i=0;DEBUG_i<sizeof(MP->DEBUG_allocdata)/sizeof(MP->DEBUG_allocdata[0]);DEBUG_i++)
 		{
-			if(MP->DEBUG_allocdata[DEBUG_i].addr==0)
+			if(MP->DEBUG_allocdata[DEBUG_i].startAddr ==0)
 			{
-				MP->DEBUG_allocdata[DEBUG_i].addr=MemNode->StartAddr;
+				MP->DEBUG_allocdata[DEBUG_i].offset = (px_dword)((px_byte*)MemNode->StartAddr - (px_byte*)MP->StartAddr);
 				MP->DEBUG_allocdata[DEBUG_i].startAddr=MemNode->StartAddr;
 				MP->DEBUG_allocdata[DEBUG_i].endAddr=MemNode->EndAddr;
+
 				break;
 			}
+		}
+		if (DEBUG_i == PX_COUNTOF(MP->DEBUG_allocdata))
+		{
+			MP->enable_allocdata_tracert = PX_FALSE;
+			//PX_ERROR("Not enough of memory debug node!");
 		}
 		pAppend=(MP_Append_data *)((px_uchar *)MemNode->EndAddr-sizeof(MP_Append_data)+1);
 		pAppend->append=MP_APPENDDATA_MAGIC;
@@ -291,11 +311,14 @@ px_void * MP_Malloc(px_memorypool *MP, px_uint Size )
 		return MemNode->StartAddr;
 	}
 
-	if(MP->ErrorCall_Ptr==PX_NULL)
-	PX_ERROR("MemoryPool Out Of Memory!");
+	if (MP->ErrorCall_Ptr == PX_NULL)
+	{
+		PX_ERROR("MemoryPool Out Of Memory!");
+	}
 	else
-	MP->ErrorCall_Ptr(PX_MEMORYPOOL_ERROR_OUTOFMEMORY);
-
+	{
+		MP->ErrorCall_Ptr(MP->userptr,PX_MEMORYPOOL_ERROR_OUTOFMEMORY);
+	}
 	return PX_NULL;
 
 }
@@ -311,6 +334,9 @@ px_void MP_Free(px_memorypool *MP, px_void *pAddress )
 	px_uchar bExist;
 	px_void *TempPointer;
 	MemoryNode *TempNode;
+#if defined(PX_DEBUG_MODE) && defined(PX_MEMORYPOOL_DEBUG_CHECK)
+	px_int DEBUG_i;
+#endif
 	MP->nodeCount--;
 	bExist=0;
 	#if defined(PX_DEBUG_MODE)
@@ -332,30 +358,33 @@ px_void MP_Free(px_memorypool *MP, px_void *pAddress )
 	
 	for (DEBUG_i=0;DEBUG_i<sizeof(MP->DEBUG_allocdata)/sizeof(MP->DEBUG_allocdata[0]);DEBUG_i++)
 	{
-		if(MP->DEBUG_allocdata[DEBUG_i].addr==pAddress)
+		if(MP->DEBUG_allocdata[DEBUG_i].startAddr==pAddress)
 		{
 			MP_Append_data *pAppend;
 			pAppend=(MP_Append_data *)((px_uchar *)MP->DEBUG_allocdata[DEBUG_i].endAddr-sizeof(MP_Append_data)+1);
 			if(MP->DEBUG_allocdata[DEBUG_i].startAddr!=FreeNode.StartAddr) PX_ASSERT();
 			if(MP->DEBUG_allocdata[DEBUG_i].endAddr!=FreeNode.EndAddr) PX_ASSERT();
 			if(pAppend->append!=MP_APPENDDATA_MAGIC)PX_ASSERT();
-			MP->DEBUG_allocdata[DEBUG_i].addr=PX_NULL;
+			MP->DEBUG_allocdata[DEBUG_i].offset=0;
 			MP->DEBUG_allocdata[DEBUG_i].startAddr=PX_NULL;
 			MP->DEBUG_allocdata[DEBUG_i].endAddr=PX_NULL;
 			break;
 		}
 	}
 
-	if (MP->DEBUG_allocdata[PX_COUNTOF(MP->DEBUG_allocdata)-1].addr==PX_NULL)
+	if (MP->enable_allocdata_tracert)
 	{
 		if(DEBUG_i==sizeof(MP->DEBUG_allocdata)/sizeof(MP->DEBUG_allocdata[0]))
 		{
-			if(MP->ErrorCall_Ptr==PX_NULL)
+			if (MP->ErrorCall_Ptr == PX_NULL)
+			{
 				PX_LOG("Invalid address free");
+				PX_ASSERT();
+			}
 			else
-				MP->ErrorCall_Ptr(PX_MEMORYPOOL_ERROR_INVALID_ADDRESS);
+				MP->ErrorCall_Ptr(MP->userptr,PX_MEMORYPOOL_ERROR_INVALID_ADDRESS);
 
-			PX_ASSERT();
+			
 			goto _END;
 		}
 	}
@@ -470,9 +499,10 @@ _END:
 	PX_UpdateMaxFreqSize(MP);
 
 #if defined(PX_DEBUG_MODE) && defined(PX_MEMORYPOOL_DEBUG_CHECK)
+
 	for (DEBUG_i=0;DEBUG_i<sizeof(MP->DEBUG_allocdata)/sizeof(MP->DEBUG_allocdata[0]);DEBUG_i++)
 	{
-		if(MP->DEBUG_allocdata[DEBUG_i].addr!=PX_NULL)
+		if(MP->DEBUG_allocdata[DEBUG_i].startAddr!=PX_NULL)
 		{
 			for(i=0;i<MP->FreeTableCount;i++)
 			{
@@ -498,9 +528,10 @@ px_void MP_Release(px_memorypool *Node)
 	//free(G_MemoryPool.StartAddr);
 }
 
-px_void MP_ErrorCatch(px_memorypool *Pool,PX_MP_ErrorCall ErrorCall)
+px_void MP_ErrorCatch(px_memorypool *Pool,PX_MP_ErrorCall ErrorCall, px_void* ptr)
 {
 	Pool->ErrorCall_Ptr=ErrorCall;
+	Pool->userptr = ptr;
 }
 
 px_uint MP_Size(px_memorypool *Pool,px_void *pAddress)
@@ -536,3 +567,16 @@ px_void MP_Reset(px_memorypool *Pool)
 #endif
 }
 
+px_void MP_ResetZero(px_memorypool* Pool)
+{
+	Pool->AllocAddr = Pool->StartAddr;
+	Pool->EndAddr = ((px_uchar*)Pool->StartAddr) + Pool->Size - 1;
+	Pool->FreeSize = Pool->Size;
+	Pool->FreeTableCount = 0;
+	Pool->MaxMemoryfragSize = 0;
+	Pool->nodeCount = 0;
+	PX_memset(Pool->StartAddr,0,Pool->Size);
+#if defined(PX_DEBUG_MODE) && defined(PX_MEMORYPOOL_DEBUG_CHECK)
+	PX_memset(Pool->DEBUG_allocdata, 0, sizeof(Pool->DEBUG_allocdata));
+#endif
+}

@@ -1,17 +1,17 @@
 #include "PX_Object_ScrollArea.h"
 
-px_void PX_Object_ScrollArea_EventDispatcher(PX_Object *Object,PX_Object_Event e,px_void *user_ptr)
+px_void PX_Object_ScrollArea_EventDispatcher(PX_Object *pObject,PX_Object_Event e,px_void *user_ptr)
 {
-	PX_Object_ScrollArea *pSA=PX_Object_GetScrollArea(Object);
+	PX_Object_ScrollArea *pSA=PX_Object_GetScrollArea(pObject);
 	px_float objx,objy,objWidth,objHeight;
 	px_float inheritX,inheritY;
 
-	PX_ObjectGetInheritXY(Object,&inheritX,&inheritY);
+	PX_ObjectGetInheritXY(pObject,&inheritX,&inheritY);
 
-	objx=(Object->x+inheritX);
-	objy=(Object->y+inheritY);
-	objWidth=Object->Width;
-	objHeight=Object->Height;
+	objx=(pObject->x+inheritX);
+	objy=(pObject->y+inheritY);
+	objWidth=pObject->Width;
+	objHeight=pObject->Height;
 
 	if (!pSA)
 	{
@@ -21,7 +21,7 @@ px_void PX_Object_ScrollArea_EventDispatcher(PX_Object *Object,PX_Object_Event e
 	if (e.Event==PX_OBJECT_EVENT_EXECUTE||e.Event==PX_OBJECT_EVENT_CURSORDRAG||e.Event==PX_OBJECT_EVENT_CURSORDOWN||e.Event==PX_OBJECT_EVENT_CURSORUP||e.Event==PX_OBJECT_EVENT_CURSORMOVE)
 	{
 
-		if (!PX_ObjectIsPointInRegion(Object,PX_Object_Event_GetCursorX(e),PX_Object_Event_GetCursorY(e)))
+		if (!PX_ObjectIsPointInRegion(pObject,PX_Object_Event_GetCursorX(e),PX_Object_Event_GetCursorY(e)))
 		{
 			return;
 		}
@@ -33,7 +33,7 @@ px_void PX_Object_ScrollArea_EventDispatcher(PX_Object *Object,PX_Object_Event e
 
 px_void  PX_Object_ScrollAreaLinkChild(PX_Object *parent,PX_Object *child)
 {
-	PX_ObjectAddClild(PX_Object_ScrollAreaGetIncludedObjects(parent),child);
+	PX_ObjectAddChild(PX_Object_ScrollAreaGetIncludedObjects(parent),child);
 	PX_Object_ScrollAreaUpdateRange(parent);
 }
 
@@ -80,7 +80,7 @@ PX_Object * PX_Object_ScrollAreaCreate(px_memorypool *mp,PX_Object *Parent,px_in
 		return PX_NULL;
 	}
 
-	pObject->pObject=pSA;
+	pObject->pObjectDesc=pSA;
 	pObject->Type=PX_OBJECT_TYPE_SCROLLAREA;
 	pObject->ReceiveEvents=PX_TRUE;
 	pObject->Func_ObjectFree=PX_Object_ScrollAreaFree;
@@ -119,16 +119,42 @@ PX_Object * PX_Object_ScrollAreaGetIncludedObjects(PX_Object *pObj)
 	return PX_NULL;
 }
 
+PX_Object* PX_Object_ScrollAreaSetBackgroundColor(PX_Object* pObj, px_color color)
+{
+	PX_Object_ScrollArea *pSA;
+	pSA=PX_Object_GetScrollArea(pObj);
+	if (pSA)
+	{
+		pSA->BackgroundColor=color;
+	}
+	return pObj;
+}
+
+//get background color
+px_color PX_Object_ScrollAreaGetBackgroundColor(PX_Object* pObj)
+{
+	PX_Object_ScrollArea *pSA;
+	pSA=PX_Object_GetScrollArea(pObj);
+	if (pSA)
+	{
+		return pSA->BackgroundColor;
+	}
+	return PX_COLOR(0,0,0,0);
+}
+
 px_void PX_Object_ScrollAreaMoveToBottom(PX_Object *pObject)
 {
 	px_float left=0,top=0,right=0,bottom=0;
 	PX_Object_ScrollArea *psa=PX_Object_GetScrollArea(pObject);
+
 	if(psa)
 	{
 		PX_Object_ScrollAreaGetRegion(psa->root,&left,&top,&right,&bottom);
+		
 		if (bottom-top>=pObject->Height)
 		{
 			psa->root->y=-(bottom-top-pObject->Height);
+			PX_Object_SliderBarSetValue(psa->vscroll, -(px_int)psa->root->y);
 		}
 		else
 		{
@@ -152,8 +178,13 @@ px_void PX_Object_ScrollAreaGetRegion(PX_Object *pObject,px_float *left,px_float
 	px_float objx,objy,objWidth,objHeight;
 	px_float inheritX,inheritY;
 
-	if (pObject==PX_NULL||pObject->Visible==PX_FALSE)
+	if (pObject==PX_NULL)
 	{
+		return;
+	}
+	if (pObject->Visible == PX_FALSE)
+	{
+		PX_Object_ScrollAreaGetRegion(pObject->pNextBrother, left, top, right, bottom);
 		return;
 	}
 
@@ -185,7 +216,7 @@ px_void PX_Object_ScrollAreaGetRegion(PX_Object *pObject,px_float *left,px_float
 		*bottom=objy+objHeight;
 	}
 
-	PX_Object_ScrollAreaGetRegion(pObject->pNextBrother,left,top,right,bottom);
+	PX_Object_ScrollAreaGetRegion(pObject->pNextBrother, left, top, right, bottom);
 	PX_Object_ScrollAreaGetRegion(pObject->pChilds,left,top,right,bottom);
 }
 
@@ -213,7 +244,7 @@ px_void PX_Object_ScrollAreaUpdateRange( PX_Object *pObject)
 	{	
 		px_float rWidth=right-left;
 		pSA->hscroll->x=0;
-		pSA->hscroll->y=objHeight;
+		pSA->hscroll->y=objHeight-16;
 		pSA->hscroll->Width=pObject->Width;
 		pSA->hscroll->Height=16;
 		if (rWidth>pObject->Width)
@@ -238,7 +269,7 @@ px_void PX_Object_ScrollAreaUpdateRange( PX_Object *pObject)
 	{	
 		px_float rHeight=bottom-top;
 
-		pSA->vscroll->x=objWidth;
+		pSA->vscroll->x=objWidth-16;
 		pSA->vscroll->y=0;
 		pSA->vscroll->Width=16;
 		pSA->vscroll->Height=objHeight;
@@ -250,7 +281,10 @@ px_void PX_Object_ScrollAreaUpdateRange( PX_Object *pObject)
 				pSA->vscroll->Visible=PX_TRUE;
 				PX_Object_SliderBarSetSliderButtonLength(pSA->vscroll,(px_int)btnH);
 			}
-			PX_Object_SliderBarSetRange(pSA->vscroll, (px_int)top, (px_int)(bottom - objHeight));
+			if(pSA->hscroll->Visible)
+				PX_Object_SliderBarSetRange(pSA->vscroll, (px_int)top, (px_int)(bottom - objHeight+36));
+			else
+				PX_Object_SliderBarSetRange(pSA->vscroll, (px_int)top, (px_int)(bottom - objHeight));
 			PX_Object_SliderBarSetValue(pSA->vscroll, (px_int)top);
 		}
 		else
@@ -289,6 +323,7 @@ px_void PX_Object_ScrollAreaRender(px_surface *psurface, PX_Object *pObject,px_u
 		{
 			return;
 		}
+		PX_Object_ScrollAreaUpdateRange(pObject);
 	}
 
 
@@ -312,6 +347,17 @@ px_void PX_Object_ScrollAreaFree(PX_Object *pObj)
 	{
 		PX_ObjectDelete(pSA->root);
 		PX_SurfaceFree(&pSA->surface);
+	}
+}
+
+px_void PX_Object_ScrollAreaClear(PX_Object* pObj)
+{
+	PX_Object_ScrollArea *pSA;
+	pSA=PX_Object_GetScrollArea(pObj);
+	if (pSA)
+	{
+		PX_ObjectDelete(pSA->root);
+		pSA->root=PX_ObjectCreate(pObj->mp,PX_NULL,0,0,0,0,0,0);
 	}
 }
 
@@ -345,10 +391,10 @@ px_void PX_Object_ScrollAreaSetBorderColor(PX_Object *pObj,px_color borderColor)
 	}
 }
 
-PX_Object_ScrollArea * PX_Object_GetScrollArea(PX_Object *Object)
+PX_Object_ScrollArea * PX_Object_GetScrollArea(PX_Object *pObject)
 {
-	if(Object->Type==PX_OBJECT_TYPE_SCROLLAREA)
-		return (PX_Object_ScrollArea *)Object->pObject;
+	if(pObject->Type==PX_OBJECT_TYPE_SCROLLAREA)
+		return (PX_Object_ScrollArea *)pObject->pObjectDesc;
 	else
 		return PX_NULL;
 }

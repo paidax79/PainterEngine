@@ -1,16 +1,5 @@
-
-//Platform supports
-#include "PainterEngine_Application.h"
-
-#ifdef __cplusplus
-extern "C" {
-#endif
-
+#include "runtime/PainterEngine_Application.h"
 #include "px_display.h"
-
-#ifdef __cplusplus
-}
-#endif
 
 //mouse informations
 POINT main_zoomPoint;
@@ -65,12 +54,8 @@ DWORD WINAPI DEMO_RenderThreadFunc(LPVOID p)
 					{
 						PX_ApplicationPostEvent(&App,e);
 						PX_WindowResize(App.runtime.surface_width,App.runtime.surface_height,(px_int)width, (px_int)height);
+						PX_RuntimeResize(&App.runtime,App.runtime.surface_width,App.runtime.surface_height,(px_int)width, (px_int)height);
 					}
-					else
-					{
-						
-					}
-					
 					continue;
 					
 				}
@@ -145,6 +130,24 @@ DWORD WINAPI DEMO_RenderThreadFunc(LPVOID p)
 					PX_Object_Event_SetCursorY(&e,cursory*cursory_scale);
 				}
 				break;
+			case WM_MBUTTONDOWN:
+			{
+				e.Event = PX_OBJECT_EVENT_CURSORMDOWN;
+				cursorx = (px_float)((msg.lparam) & 0xffff);
+				cursory = (px_float)((msg.lparam >> 16) & 0xffff);
+				PX_Object_Event_SetCursorX(&e, cursorx * cursorx_scale);
+				PX_Object_Event_SetCursorY(&e, cursory * cursory_scale);
+			}
+			break;
+			case WM_MBUTTONUP:
+			{
+				e.Event = PX_OBJECT_EVENT_CURSORMUP;
+				cursorx = (px_float)((msg.lparam) & 0xffff);
+				cursory = (px_float)((msg.lparam >> 16) & 0xffff);
+				PX_Object_Event_SetCursorX(&e, cursorx * cursorx_scale);
+				PX_Object_Event_SetCursorY(&e, cursory * cursory_scale);
+			}
+			break;
 
 			case  WM_KEYDOWN:
 				{
@@ -269,11 +272,8 @@ void setCurrentDirectory()
 	SetCurrentDirectoryA(path);
 }
 
-#ifdef _DEBUG
 	int main()
-#else
-	int WINAPI WinMain( __in HINSTANCE hInstance, __in_opt HINSTANCE hPrevInstance, __in LPSTR lpCmdLine, __in int nShowCmd )
-#endif
+//	int WINAPI WinMain( __in HINSTANCE hInstance, __in_opt HINSTANCE hPrevInstance, __in LPSTR lpCmdLine, __in int nShowCmd )
 {
 	HANDLE hThread;
 	DWORD  threadId;
@@ -289,8 +289,8 @@ void setCurrentDirectory()
 #ifdef PX_AUDIO_H
 	do 
 	{
-		extern int PX_AudioInitializeEx();
-		if(!PX_AudioInitializeEx())return 0;
+		extern int PX_AudioInitializeHwnd(HWND hwnd);
+		if(!PX_AudioInitializeHwnd(PX_GetWindowHwnd()))return 0;
 	} while (0);
 #endif
 	//////////////////////////////////////////////////////////////////////////

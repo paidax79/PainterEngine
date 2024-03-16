@@ -1,10 +1,10 @@
 #include "PX_Object_Protractor.h"
 
-PX_Object_Protractor * PX_Object_GetProtractor(PX_Object *Object)
+PX_Object_Protractor * PX_Object_GetProtractor(PX_Object *pObject)
 {
-	if (Object->Type==PX_OBJECT_TYPE_PROTRACTOR)
+	if (pObject->Type==PX_OBJECT_TYPE_PROTRACTOR)
 	{
-		return (PX_Object_Protractor *)Object->pObject;
+		return (PX_Object_Protractor *)pObject->pObjectDesc;
 	}
 	return PX_NULL;
 }
@@ -44,7 +44,7 @@ px_void PX_Object_ProtractorRender(px_surface *rendersurface,PX_Object *pObject,
 			acolor=pProtractor->color;
 			acolor._argb.a/=4;
 			
-			PX_GeoDrawSector(rendersurface,(px_int)objx,(px_int)objy,(px_int)pProtractor->radius,1,acolor,(px_int)pProtractor->startAngle,(px_int)pProtractor->endAngle);
+			PX_GeoDrawSector(rendersurface,(px_int)objx,(px_int)objy,pProtractor->radius,1,acolor, (px_int)pProtractor->startAngle,(px_int)pProtractor->endAngle);
 
 			PX_GeoDrawLine(rendersurface,(px_int)objx,(px_int)objy,(px_int)(objx+PX_cos_angle(pProtractor->startAngle)*pProtractor->radius),
 				(px_int)(objy+PX_sin_angle(pProtractor->startAngle)*pProtractor->radius),1,pProtractor->color);
@@ -157,7 +157,7 @@ PX_Object * PX_Object_ProtractorCreate(px_memorypool *mp, PX_Object *Parent,px_i
 	PX_memset(&protractor,0,sizeof(protractor));
 	protractor.color=PX_OBJECT_UI_DEFAULT_BORDERCOLOR;
 	protractor.fontColor=PX_COLOR(255,255,0,0);
-	protractor.radius=radius;
+	protractor.radius=(px_float)radius;
 	
 	pObject=PX_ObjectCreateEx(mp,Parent,(px_float)x,(px_float)y,0,0,0,0,PX_OBJECT_TYPE_PROTRACTOR,0,PX_Object_ProtractorRender,0,&protractor,sizeof(protractor));
 	PX_ObjectRegisterEvent(pObject,PX_OBJECT_EVENT_CURSORDOWN,PX_Object_ProtractorOnCursorDown,PX_NULL);
@@ -166,8 +166,8 @@ PX_Object * PX_Object_ProtractorCreate(px_memorypool *mp, PX_Object *Parent,px_i
 	return pObject;
 }
 
-px_float PX_Object_ProtractorGetAngle(PX_Object *Object)
+px_float PX_Object_ProtractorGetAngle(PX_Object *pObject)
 {
-	return PX_Object_GetProtractor(Object)->endAngle-PX_Object_GetProtractor(Object)->startAngle;
+	return PX_Object_GetProtractor(pObject)->endAngle-PX_Object_GetProtractor(pObject)->startAngle;
 }
 

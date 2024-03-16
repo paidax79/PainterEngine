@@ -199,7 +199,7 @@ px_void PX_3D_CameraBuildUVNMatrix(PX_3D_Camera *camera)
 	n=PX_Point4DUnit(n);
 	v=PX_POINT4D(0,1,0);
 	u=PX_Point4DCross(v,n);
-
+	v = PX_Point4DCross(n, u);
 	PX_MatrixZero(&mt_uvn);
 	mt_uvn._11=u.x;
 	mt_uvn._12=v.x;
@@ -853,7 +853,6 @@ static px_void PX_3D_RenderListRasterization(px_surface *psurface,PX_3D_RenderLi
 			toverz += toverz_step;
 		}
 	}
-
 }
 
 
@@ -920,6 +919,19 @@ px_void PX_3D_Present(px_surface *psurface, PX_3D_RenderList *list,PX_3D_Camera 
 		for (i=0;i<list->facestream.size;i++)
 		{
 			pface=PX_VECTORAT(PX_3D_Face,&list->facestream,i);
+			if (!PX_isPointInRect(PX_POINT(pface->transform_vertex[0].position.x, pface->transform_vertex[0].position.y,0),PX_RECT(0,0,1.f*psurface->width, 1.f * psurface->width)))
+			{
+				continue;
+			}
+			if (!PX_isPointInRect(PX_POINT(pface->transform_vertex[1].position.x, pface->transform_vertex[1].position.y, 0), PX_RECT(0, 0, 1.f * psurface->width, 1.f * psurface->width)))
+			{
+				continue;
+			}
+			if (!PX_isPointInRect(PX_POINT(pface->transform_vertex[2].position.x, pface->transform_vertex[2].position.y, 0), PX_RECT(0, 0, 1.f * psurface->width, 1.f * psurface->width)))
+			{
+				continue;
+			}
+
 			if (!(pface->state&PX_3D_FACESTATE_BACKFACE||pface->state&PX_3D_FACESTATE_CLIPPED))
 			{
 				if (list->PX_3D_PRESENTMODE&PX_3D_PRESENTMODE_PURE)

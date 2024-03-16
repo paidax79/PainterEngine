@@ -41,6 +41,35 @@ px_bool PX_TextureCreateFromMemory(px_memorypool *mp,px_void *data,px_int size,p
 		}
 	}
 
+	if (PX_PngVerify((px_byte *)data,size,&width,&height,0))
+	{
+		if (PX_TextureCreate(mp, tex, width, height))
+		{
+			if (!PX_PngToRenderBuffer(mp, (px_byte*)data, size, tex))
+				return PX_FALSE;
+			return PX_TRUE;
+		}
+		else
+		{
+			return PX_FALSE;
+		}
+	}
+
+	if (PX_JpgVerify((px_byte *)data, size))
+	{
+		PX_JpgDecoder decoder;
+		if (PX_JpgDecoderInitialize(mp, &decoder, (px_byte*)data, size))
+		{
+			if (PX_TextureCreate(mp, tex, decoder.width, decoder.height))
+			{
+				PX_JpgDecoderRenderToSurface(&decoder, tex);
+				PX_JpgDecoderFree(&decoder);
+				return PX_TRUE;
+			}
+			PX_JpgDecoderFree(&decoder);
+		}
+	}
+
 	//image-format not supported
 	return PX_FALSE;
 }
@@ -75,10 +104,10 @@ static px_int PX_TextureRenderParallel(px_void *parallel_data)
 				bG=(px_int)(clr._argb.g*param_data->blend->hdr_G);
 				bB=(px_int)(clr._argb.b*param_data->blend->hdr_B);
 
-				clr._argb.a=bA>255?255:(px_uchar)bA;
-				clr._argb.r=bR>255?255:(px_uchar)bR;
-				clr._argb.g=bG>255?255:(px_uchar)bG;
-				clr._argb.b=bB>255?255:(px_uchar)bB;
+				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
+				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);
+				clr._argb.g = (px_uchar)(((bG > 255) * 0xff) | bG);
+				clr._argb.b = (px_uchar)(((bB > 255) * 0xff) | bB);
 				PX_SurfaceDrawPixel(param_data->psurface,param_data->x+i,param_data->y+j,clr);
 			}
 		}
@@ -97,143 +126,245 @@ static px_int PX_TextureRenderParallel(px_void *parallel_data)
 	return 0;
 }
 
-px_void PX_TextureRender(px_surface *psurface,px_texture *tex,px_int x,px_int y,PX_ALIGN refPoint,PX_TEXTURERENDER_BLEND *blend)
+
+px_void PX_TextureRenderClipMirror(px_surface* psurface, px_texture* tex, px_int x, px_int y, px_int clipx, px_int clipy, px_int clipw, px_int cliph, PX_ALIGN refPoint, PX_TEXTURERENDER_BLEND* blend, PX_TEXTURERENDER_MIRRROR_MODE mirrorMode)
 {
-	px_int left,right,top,bottom,i,j;
-	px_int bR,bG,bB,bA;
-	px_color *pdata;
+	px_int i, j;
+	px_int bR, bG, bB, bA;
+	px_int hmul, vmul, hinc, vinc;
+	px_int offsetw = clipw, offseth = cliph;
+	px_color* pdata;
 	px_color clr;
 
-	pdata=(px_color *)tex->surfaceBuffer;
+	PX_ASSERTIF(tex == PX_NULL);
+
+	if (clipx < 0)
+	{
+		clipx = 0;
+	}
+	else if (clipx >= tex->width)
+	{
+		return;
+	}
+
+	if (clipw <= 0)
+	{
+		return;
+	}
+	else if (clipx + clipw > tex->width)
+	{
+		clipw = tex->width - clipx;
+	}
+
+	if (clipy < 0)
+	{
+		clipy = 0;
+	}
+	else if (clipy >= tex->height)
+	{
+		return;
+	}
+
+	if (cliph <= 0)
+	{
+		return;
+	}
+	else if (clipy + cliph > tex->height)
+	{
+		cliph = tex->height - clipy;
+	}
+
+
+	pdata = (px_color*)tex->surfaceBuffer;
 	switch (refPoint)
 	{
 	case PX_ALIGN_LEFTTOP:
 		break;
 	case PX_ALIGN_MIDTOP:
-		x-=tex->width/2;
+		x -= offsetw / 2;
 		break;
 	case PX_ALIGN_RIGHTTOP:
-		x-=tex->width;
+		x -= offsetw;
 		break;
 	case PX_ALIGN_LEFTMID:
-		y-=tex->height/2;
+		y -= offseth / 2;
 		break;
 	case PX_ALIGN_CENTER:
-		y-=tex->height/2;
-		x-=tex->width/2;
+		y -= offseth / 2;
+		x -= offsetw / 2;
 		break;
 	case PX_ALIGN_RIGHTMID:
-		y-=tex->height/2;
-		x-=tex->width;
+		y -= offseth / 2;
+		x -= offsetw;
 		break;
 	case PX_ALIGN_LEFTBOTTOM:
-		y-=tex->height;
+		y -= offseth;
 		break;
 	case PX_ALIGN_MIDBOTTOM:
-		y-=tex->height;
-		x-=tex->width/2;
+		y -= offseth;
+		x -= offsetw / 2;
 		break;
 	case PX_ALIGN_RIGHTBOTTOM:
-		y-=tex->height;
-		x-=tex->width;
+		y -= offseth;
+		x -= offsetw;
 		break;
 	}
 
-
-	if (x<-tex->width)
+	if (x < psurface->limit_left)
 	{
-		return;
-	}
-	if (x>psurface->width-1)
-	{
-		return;
-	}
-	if (y<-tex->height)
-	{
-		return;
-	}
-	if (y>psurface->height-1)
-	{
-		return;
-	}
-
-	if (x<0)
-	{
-		left=-x;
-	}
-	else
-	{
-		left=0;
-	}
-
-	if (x+tex->width>psurface->width)
-	{
-		right=psurface->width-x-1;
-	}
-	else
-	{
-		right=tex->width-1;
-	}
-
-	if (y<0)
-	{
-		top=-y;
-	}
-	else
-	{
-		top=0;
-	}
-
-	if (y+tex->height>psurface->height)
-	{
-		bottom=psurface->height-y-1;
-	}
-	else
-	{
-		bottom=tex->height-1;
-	}
-	
-	
-		if (blend)
-		{	
-			px_int Ab=(px_int)(blend->alpha*1000);
-			px_int Rb=(px_int)(blend->hdr_R*1000);
-			px_int Gb=(px_int)(blend->hdr_G*1000);
-			px_int Bb=(px_int)(blend->hdr_B*1000);
-
-			for (j=top;j<=bottom;j++)
-			{
-				for (i=left;i<=right;i++)
-				{
-					clr=pdata[j*tex->width+i];
-					bA=(px_int)(clr._argb.a*Ab/1000);
-					bR=(px_int)(clr._argb.r*Rb/1000);
-					bG=(px_int)(clr._argb.g*Gb/1000);
-					bB=(px_int)(clr._argb.b*Bb/1000);
-
-					clr._argb.a=bA>255?255:(px_uchar)bA;
-					clr._argb.r=bR>255?255:(px_uchar)bR;
-					clr._argb.g=bG>255?255:(px_uchar)bG;
-					clr._argb.b=bB>255?255:(px_uchar)bB;
-					PX_SurfaceDrawPixel(psurface,x+i,y+j,clr);
-				}
-			}
+		if (x + clipw < psurface->limit_left)
+		{
+			return;
 		}
 		else
 		{
-			for (j=top;j<=bottom;j++)
+			if (x + clipw <= psurface->limit_right + 1)
 			{
-				for (i=left;i<=right;i++)
-				{
-					clr=pdata[j*tex->width+i];
-					PX_SurfaceDrawPixel(psurface,x+i,y+j,clr);
-				}
+				clipw = x + clipw - psurface->limit_left;
+				clipx += psurface->limit_left - x;
+				x = psurface->limit_left;
+			}
+			else
+			{
+				clipw = psurface->limit_right - psurface->limit_left + 1;
+				clipx += psurface->limit_left - x;
+				x = psurface->limit_left;
 			}
 		}
-	
+
+	}
+	else if (x >= psurface->limit_left)
+	{
+		if (x + clipw > psurface->limit_right + 1)
+			clipw = psurface->limit_right + 1-x;
+	}
+	else
+	{
+		return;
+	}
+
+	if (y < psurface->limit_top)
+	{
+		if (y + cliph < psurface->limit_top)
+		{
+			return;
+		}
+		else
+		{
+			if (y + cliph <= psurface->limit_bottom + 1)
+			{
+				cliph = y + cliph - psurface->limit_top;
+				clipy += psurface->limit_top - y;
+				y = psurface->limit_top;
+			}
+			else
+			{
+				cliph = psurface->limit_bottom - psurface->limit_top + 1;
+				clipy += psurface->limit_top - y;
+				y = psurface->limit_top;
+			}
+		}
+
+	}
+	else if (y >= psurface->limit_top)
+	{
+		if (y + cliph > psurface->limit_bottom + 1)
+			cliph = psurface->limit_bottom + 1 - y;
+	}
+	else
+	{
+		return;
+	}
+
+
+	switch (mirrorMode)
+	{
+	case PX_TEXTURERENDER_MIRRROR_MODE_NONE:
+		hmul = 1;
+		hinc = clipx;
+		vmul = 1;
+		vinc = clipy;
+		break;
+	case PX_TEXTURERENDER_MIRRROR_MODE_H:
+		hmul = -1;
+		hinc = clipx+ offsetw -1;
+		vmul = 1;
+		vinc = clipy;
+		break;
+	case PX_TEXTURERENDER_MIRRROR_MODE_V:
+		hmul = 1;
+		hinc = clipx;
+		vmul = -1;
+		vinc = clipy+ offseth - 1;
+		break;
+	case PX_TEXTURERENDER_MIRRROR_MODE_HV:
+		hmul = -1;
+		hinc = clipx+ offsetw - 1;
+		vmul = -1;
+		vinc = clipy+ offseth - 1;
+		break;
+	}
+
+	if (blend)
+	{
+		px_int Ab = (px_int)(blend->alpha * 1000);
+		px_int Rb = (px_int)(blend->hdr_R * 1000);
+		px_int Gb = (px_int)(blend->hdr_G * 1000);
+		px_int Bb = (px_int)(blend->hdr_B * 1000);
+
+		for (j = 0; j < cliph; j++)
+		{
+			for (i = 0; i < clipw; i++)
+			{
+				clr = pdata[(j * vmul + vinc) * tex->width + (i * hmul + hinc)];
+				bA = (px_int)(clr._argb.a * Ab / 1000);
+				bR = (px_int)(clr._argb.r * Rb / 1000);
+				bG = (px_int)(clr._argb.g * Gb / 1000);
+				bB = (px_int)(clr._argb.b * Bb / 1000);
+
+				clr._argb.a = (px_uchar)bA;
+				clr._argb.r = (px_uchar)bR;
+				clr._argb.g = (px_uchar)bG;
+				clr._argb.b = (px_uchar)bB;
+
+				if (x+i<psurface->limit_left||x+i>psurface->limit_right|| y + j<psurface->limit_top|| y + j>psurface->limit_bottom)
+				{
+					PX_ASSERT();
+				}
+
+				PX_SurfaceDrawPixelWithoutLimit(psurface, x + i, y + j, clr);
+			}
+		}
+
+	}
+	else
+	{
+
+		for (j = 0; j < cliph; j++)
+		{
+			for (i = 0; i < clipw; i++)
+			{
+				clr = pdata[(j * vmul + vinc) * tex->width + (i * hmul + hinc)];
+				PX_SurfaceDrawPixelWithoutLimit(psurface, x + i, y + j, clr);
+			}
+		}
+	}
+
 }
 
+px_void PX_TextureRenderClip(px_surface* psurface, px_texture* tex, px_int x, px_int y, px_int clipx, px_int clipy, px_int clipw, px_int cliph, PX_ALIGN refPoint, PX_TEXTURERENDER_BLEND* blend)
+{
+	PX_TextureRenderClipMirror(psurface, tex, x, y, clipx, clipy, clipw, cliph, refPoint, blend, PX_TEXTURERENDER_MIRRROR_MODE_NONE);
+}
 
+px_void PX_TextureRenderMirror(px_surface* psurface, px_texture* tex, px_int x, px_int y, PX_ALIGN refPoint, PX_TEXTURERENDER_BLEND* blend, PX_TEXTURERENDER_MIRRROR_MODE mirrorMode)
+{
+	PX_TextureRenderClipMirror(psurface, tex, x, y, 0, 0, tex->width, tex->height, refPoint, blend, mirrorMode);
+}
+px_void PX_TextureRender(px_surface* psurface, px_texture* tex, px_int x, px_int y, PX_ALIGN refPoint, PX_TEXTURERENDER_BLEND* blend)
+{
+	PX_TextureRenderMirror(psurface, tex, x, y, refPoint, blend, PX_TEXTURERENDER_MIRRROR_MODE_NONE);
+}
 
 px_void PX_TextureCover(px_surface *psurface,px_texture *tex,px_int x,px_int y,PX_ALIGN refPoint)
 {
@@ -472,7 +603,7 @@ px_void PX_TextureRenderPixelShader(px_surface *psurface,px_texture *tex,px_int 
 		for (i=left;i<=right;i++)
 		{
 			clr=pdata[j*tex->width+i];
-			shader(psurface,x+i,y+j,clr,ptr);
+			shader(psurface, tex,x+i,y+j,i,j,ptr);
 		}
 	}
 }
@@ -482,9 +613,17 @@ px_void PX_TextureRenderRotation(px_surface *psurface,px_texture *tex,px_int x,p
 	PX_TextureRenderRotation_sincos(psurface,tex,x,y,refPoint,blend,PX_sin_angle((px_float)Angle),PX_cos_angle((px_float)Angle));
 }
 
-px_void PX_TextureRenderRotation_vector(px_surface *psurface,px_texture *tex,px_int x,px_int y,PX_ALIGN refPoint,PX_TEXTURERENDER_BLEND *blend,px_point p_vector)
+px_void PX_TextureRenderRotation_vector(px_surface *psurface,px_texture *tex,px_int x,px_int y,PX_ALIGN refPoint,PX_TEXTURERENDER_BLEND *blend,px_point2D p_vector)
 {
-	PX_TextureRenderRotation_sincos(psurface,tex,x,y,refPoint,blend,PX_Point_sin(p_vector),PX_Point_cos(p_vector));
+	if (p_vector.x|| p_vector.y)
+	{
+		PX_TextureRenderRotation_sincos(psurface, tex, x, y, refPoint, blend, PX_Point2D_sin(p_vector), PX_Point2D_cos(p_vector));
+	}
+	else
+	{
+		PX_TextureRender(psurface, tex, x, y, refPoint, blend);
+	}
+	
 }
 
 px_void PX_TextureRenderRotation_sincos(px_surface *psurface,px_texture *tex,px_int x,px_int y,PX_ALIGN refPoint,PX_TEXTURERENDER_BLEND *blend,px_float sinx,px_float cosx)
@@ -739,10 +878,10 @@ px_void PX_TextureRenderRotation_sincos(px_surface *psurface,px_texture *tex,px_
 				bG=(px_int)(clr._argb.g*Gb/1000);
 				bB=(px_int)(clr._argb.b*Bb/1000);
 
-				clr._argb.a=bA>255?255:(px_uchar)bA;
-				clr._argb.r=bR>255?255:(px_uchar)bR;
-				clr._argb.g=bG>255?255:(px_uchar)bG;
-				clr._argb.b=bB>255?255:(px_uchar)bB;
+				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
+				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);
+				clr._argb.g = (px_uchar)(((bG > 255) * 0xff) | bG);
+				clr._argb.b = (px_uchar)(((bB > 255) * 0xff) | bB);
 
 				PX_SurfaceDrawPixel(psurface,i+x,j+y,clr);
 			}
@@ -921,10 +1060,10 @@ px_void PX_TextureRenderMask(px_surface *psurface,px_texture *mask_tex,px_textur
 				bG=(px_int)(clr._argb.g*Gb/1000);
 				bB=(px_int)(clr._argb.b*Bb/1000);
 
-				clr._argb.a=bA>255?255:(px_uchar)bA;
-				clr._argb.r=bR>255?255:(px_uchar)bR;
-				clr._argb.g=bG>255?255:(px_uchar)bG;
-				clr._argb.b=bB>255?255:(px_uchar)bB;
+				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
+				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);
+				clr._argb.g = (px_uchar)(((bG > 255) * 0xff) | bG);
+				clr._argb.b = (px_uchar)(((bB > 255) * 0xff) | bB);
 				PX_SurfaceDrawPixel(psurface,x+i,y+j,clr);
 			}
 		}
@@ -947,94 +1086,25 @@ px_void PX_TextureRenderMask(px_surface *psurface,px_texture *mask_tex,px_textur
 
 px_bool PX_TextureCreateScale(px_memorypool *mp,px_texture *resTexture,px_int newWidth,px_int newHeight,px_texture *out)
 {
-	px_double SampleWidth=(px_double)(resTexture->width)/(newWidth);
-	px_double SampleHeight=(px_double)(resTexture->height)/(newHeight);
-	px_double SampleX,SampleY,SampleArea,u,v,cellw,cellh,mixa,mixr,mixg,mixb;
-	px_color *Dst,*Src=(px_color *)resTexture->surfaceBuffer;
-	px_color SampleColor,MixColor;
-	px_int xoft,yoft,horz,vcl;
-
-	if (newWidth<0||newHeight<0)
+	if (newWidth<=0||newHeight<=0)
 	{
+		PX_ASSERT();
 		return PX_FALSE;
 	}
-	if (!(newHeight&&newWidth))
-	{
-		return PX_FALSE;
-	}
-
 	if (!PX_TextureCreate(mp,out,newWidth,newHeight))
 	{
 		return PX_FALSE;
 	}
 
-	Dst=(px_color *)out->surfaceBuffer;
-
-	SampleArea=SampleHeight*SampleWidth;
-
-	for (yoft=0;yoft<newHeight;yoft++)
+	if (!PX_TextureScaleToTexture(resTexture, out))
 	{
-		for (xoft=0;xoft<newWidth;xoft++)
-		{
-			//reset sample color
-			MixColor._argb.ucolor=0;
-
-			SampleX=xoft*SampleWidth;
-			SampleY=yoft*SampleHeight;
-			mixa=0;
-			mixr=0;
-			mixg=0;
-			mixb=0;
-
-			u=SampleX;
-			for (horz=PX_TRUNC(SampleX);horz<=PX_TRUNC(SampleX+SampleWidth);)
-			{
-				v=SampleY;
-				if (PX_TRUNC(u)==PX_TRUNC(SampleX+SampleWidth))
-				{
-					cellw=SampleX+SampleWidth-u;
-				}
-				else
-				{
-					cellw=horz+1-u;
-				}
-
-				for (vcl=PX_TRUNC(SampleY);vcl<=PX_TRUNC(SampleY+SampleHeight);)
-				{
-					if (PX_TRUNC(v)==PX_TRUNC(SampleY+SampleHeight))
-					{
-						cellh=SampleY+SampleHeight-v;
-					}
-					else
-					{
-						cellh=vcl+1-v;
-					}
-					if(horz<resTexture->width&&vcl<resTexture->height)
-					SampleColor=PX_SURFACECOLOR(resTexture,horz,vcl);
-					else
-					SampleColor._argb.ucolor=0;
-
-					mixa+=SampleColor._argb.a*cellh*cellw/SampleArea;
-					mixr+=SampleColor._argb.r*cellh*cellw/SampleArea;
-					mixg+=SampleColor._argb.g*cellh*cellw/SampleArea;
-					mixb+=SampleColor._argb.b*cellh*cellw/SampleArea;
-
-					
-					vcl++;
-					v=(px_double)vcl;
-				}
-				horz++;
-				u=(px_double)horz;
-			}
-			mixa>255?mixa=255:0;
-			mixr>255?mixr=255:0;
-			mixg>255?mixg=255:0;
-			mixb>255?mixb=255:0;
-			Dst[xoft+yoft*newWidth]=PX_COLOR((px_uchar)PX_APO(mixa),(px_uchar)mixr,(px_uchar)mixg,(px_uchar)mixb);;
-		}
+		PX_TextureFree(out);
+		return PX_FALSE;
 	}
 	return PX_TRUE;
 }
+
+
 
 px_bool PX_TextureCreateRotationRadian(px_memorypool *mp,px_texture *resTexture,px_float radian,px_texture *out)
 {
@@ -1297,6 +1367,77 @@ px_void PX_TextureFree(px_texture *tex)
 	PX_SurfaceFree(tex);
 }
 
+px_int PX_TextureGetRenderRange(px_texture* tex, px_int x, px_int y, px_int clipw, px_int cliph, px_recti* render_range)
+{
+	px_int i, j;
+	px_int left=tex->width, right=0, top=tex->height, bottom=0;
+	PX_memset(render_range, 0, sizeof(px_recti));
+	
+	if (x<0)
+	{
+		x = 0;
+	}
+	if (x>=tex->width)
+	{
+		return 0;
+	}
+	if (y < 0)
+	{
+		y=0;
+	}
+	if (y >= tex->height)
+	{
+		return 0;
+	}
+	if (x+clipw>tex->width)
+	{
+		clipw = tex->width - x;
+	}
+
+	if (y + cliph > tex->height)
+	{
+		cliph  =tex->height-y;
+	}
+
+	for (j = y; j < cliph; j++)
+	{
+		for (i = x; i < clipw; i++)
+		{
+			if (PX_SurfaceGetPixel(tex, x, y)._argb.a)
+			{
+				if (i < left)
+				{
+					left = i;
+				}
+				if (i > right)
+				{
+					right = i;
+				}
+				if (j < top)
+				{
+					top = j;
+				}
+				if (j > bottom)
+				{
+					bottom = j;
+				}
+			}
+		}
+	}
+	if (right < left)
+	{
+		return 0;
+	}
+	else
+	{
+		render_range->x = left;
+		render_range->y = top;
+		render_range->width = right-left+1;
+		render_range->height = bottom-top+1;
+		return render_range->width * render_range->height;
+	}
+}
+
 
 px_void PX_SurfaceRender(px_surface *psurface,px_surface *surface,px_int x,px_int y,PX_ALIGN refPoint,PX_TEXTURERENDER_BLEND *blend)
 {
@@ -1492,11 +1633,11 @@ px_void PX_TextureRenderEx(px_surface *psurface,px_texture *resTexture,px_int x,
 		{
 			for (i=left;i<=right;i++)
 			{
-				ref_x=i*1.0/newWidth-0.5;
-				ref_y=j*1.0/newHeight-0.5;
+				ref_x = (i - newWidth / 2.0);
+				ref_y = (j - newHeight / 2.0);
 
-				mapX=(px_int)((ref_x*invCosAgl-ref_y*invSinAgl)*resWidth+resWidth/2);
-				mapY=(px_int)((ref_x*invSinAgl+ref_y*invCosAgl)*resHeight+resHeight/2);
+				mapX = (px_int)((ref_x * invCosAgl - ref_y * invSinAgl) / scale + resWidth / 2);
+				mapY = (px_int)((ref_x * invSinAgl + ref_y * invCosAgl) / scale + resHeight / 2);
 
 				if (mapX<0||mapX>=resWidth)
 				{
@@ -1514,10 +1655,12 @@ px_void PX_TextureRenderEx(px_surface *psurface,px_texture *resTexture,px_int x,
 				bG=(px_int)(clr._argb.g*Gb/1000);
 				bB=(px_int)(clr._argb.b*Bb/1000);
 
-				clr._argb.a=bA>255?255:(px_uchar)bA;
-				clr._argb.r=bR>255?255:(px_uchar)bR;
-				clr._argb.g=bG>255?255:(px_uchar)bG;
-				clr._argb.b=bB>255?255:(px_uchar)bB;
+				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
+				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);
+				clr._argb.g = (px_uchar)(((bG > 255) * 0xff) | bG);
+				clr._argb.b = (px_uchar)(((bB > 255) * 0xff) | bB);
+
+
 				PX_SurfaceDrawPixel(psurface,x+i,y+j,clr);
 			}
 
@@ -1530,11 +1673,11 @@ px_void PX_TextureRenderEx(px_surface *psurface,px_texture *resTexture,px_int x,
 		{
 			for (i=left;i<=right;i++)
 			{
-				ref_x=i*1.0/newWidth-0.5;
-				ref_y=j*1.0/newHeight-0.5;
+				ref_x = (i - newWidth / 2.0);
+				ref_y=  (j - newHeight / 2.0);
 
-				mapX=(px_int)((ref_x*invCosAgl-ref_y*invSinAgl)*resWidth+resWidth/2);
-				mapY=(px_int)((ref_x*invSinAgl+ref_y*invCosAgl)*resHeight+resHeight/2);
+				mapX=(px_int)((ref_x*invCosAgl-ref_y*invSinAgl)/scale+resWidth/2);
+				mapY=(px_int)((ref_x*invSinAgl+ref_y*invCosAgl)/scale+resHeight/2);
 
 				if (mapX<0||mapX>=resWidth)
 				{
@@ -1719,11 +1862,11 @@ px_void PX_TextureRenderMaskEx(px_surface *psurface,px_texture *mask_tex,px_text
 		{
 			for (i=left;i<=right;i++)
 			{
-				ref_x=i*1.0/newWidth-0.5;
-				ref_y=j*1.0/newHeight-0.5;
+				ref_x = (i - newWidth / 2.0);
+				ref_y = (j - newHeight / 2.0);
 
-				mapX=(px_int)((ref_x*invCosAgl-ref_y*invSinAgl)*resWidth+resWidth/2);
-				mapY=(px_int)((ref_x*invSinAgl+ref_y*invCosAgl)*resHeight+resHeight/2);
+				mapX = (px_int)((ref_x * invCosAgl - ref_y * invSinAgl) / scale + resWidth / 2);
+				mapY = (px_int)((ref_x * invSinAgl + ref_y * invCosAgl) / scale + resHeight / 2);
 
 				if (mapX<0||mapX>=resWidth)
 				{
@@ -1743,10 +1886,10 @@ px_void PX_TextureRenderMaskEx(px_surface *psurface,px_texture *mask_tex,px_text
 				bG=(px_int)(clr._argb.g*Gb/1000);
 				bB=(px_int)(clr._argb.b*Bb/1000);
 
-				clr._argb.a=bA>255?255:(px_uchar)bA;
-				clr._argb.r=bR>255?255:(px_uchar)bR;
-				clr._argb.g=bG>255?255:(px_uchar)bG;
-				clr._argb.b=bB>255?255:(px_uchar)bB;
+				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
+				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);
+				clr._argb.g = (px_uchar)(((bG > 255) * 0xff) | bG);
+				clr._argb.b = (px_uchar)(((bB > 255) * 0xff) | bB);
 				PX_SurfaceDrawPixel(psurface,x+i,y+j,clr);
 			}
 
@@ -1759,11 +1902,11 @@ px_void PX_TextureRenderMaskEx(px_surface *psurface,px_texture *mask_tex,px_text
 		{
 			for (i=left;i<=right;i++)
 			{
-				ref_x=i*1.0/newWidth-0.5;
-				ref_y=j*1.0/newHeight-0.5;
+				ref_x = (i - newWidth / 2.0);
+				ref_y = (j - newHeight / 2.0);
 
-				mapX=(px_int)((ref_x*invCosAgl-ref_y*invSinAgl)*resWidth+resWidth/2);
-				mapY=(px_int)((ref_x*invSinAgl+ref_y*invCosAgl)*resHeight+resHeight/2);
+				mapX = (px_int)((ref_x * invCosAgl - ref_y * invSinAgl) / scale + resWidth / 2);
+				mapY = (px_int)((ref_x * invSinAgl + ref_y * invCosAgl) / scale + resHeight / 2);
 
 				if (mapX<0||mapX>=resWidth)
 				{
@@ -1785,15 +1928,50 @@ px_void PX_TextureRenderMaskEx(px_surface *psurface,px_texture *mask_tex,px_text
 
 }
 
+px_bool PX_TextureFillTestColor(px_color c1, px_color c2, px_float range)
+{
+	px_float  r, g, b;
 
+	if (c1._argb.ucolor == c2._argb.ucolor)
+	{
+		return PX_TRUE;
+	}
 
-px_void PX_TextureFill(px_memorypool *mp,px_texture *ptexture,px_int x,px_int y,px_color test_color,px_color fill_color)
+	if (range==0)
+	{
+		return c1._argb.ucolor == c2._argb.ucolor;
+	}
+	else
+	{
+		r = (c1._argb.r - c2._argb.r) * (c1._argb.r - c2._argb.r) / 65535.f;
+		g = (c1._argb.g - c2._argb.g) * (c1._argb.g - c2._argb.g) / 65535.f;
+		b = (c1._argb.b - c2._argb.b) * (c1._argb.b - c2._argb.b) / 65535.f;
+
+		if (r<=range&& g <= range && b <= range && c1._argb.a <= range * 255)
+		{
+			return PX_TRUE;
+		}
+		else
+		{
+			return PX_FALSE;
+		}
+	}
+	
+}
+
+px_void PX_TextureFill(px_memorypool *mp,px_texture *ptexture,px_int x,px_int y,px_color test_color,px_float testRange0_1,px_color fill_color)
 {
 	typedef struct
 	{
 		px_int x,y;
 	}__PX_POINT;
 	px_vector pstack;
+
+	if (fill_color._argb.ucolor==test_color._argb.ucolor)
+	{
+		return;
+	}
+
 	PX_VectorInitialize(mp,&pstack,sizeof(__PX_POINT),8);
 	
 	do 
@@ -1806,6 +1984,7 @@ px_void PX_TextureFill(px_memorypool *mp,px_texture *ptexture,px_int x,px_int y,
 
 	while (pstack.size)
 	{
+		px_bool up_newnode,down_newnode;
 		__PX_POINT retPt=*PX_VECTORLAST(__PX_POINT,&pstack);
 		PX_VectorPop(&pstack);
 
@@ -1813,106 +1992,72 @@ px_void PX_TextureFill(px_memorypool *mp,px_texture *ptexture,px_int x,px_int y,
 		y=retPt.y;
 
 		//xo mark
-		while (x>0&&(PX_SurfaceGetPixel(ptexture,x-1,y)._argb.ucolor==test_color._argb.ucolor))
+		while (x>0&&PX_TextureFillTestColor(PX_SurfaceGetPixel(ptexture,x-1,y),test_color, testRange0_1)&& (PX_SurfaceGetPixel(ptexture, x + 1, y)._argb.ucolor != fill_color._argb.ucolor))
 		{
 			x--;
 		}
 
-		//up
-		if (y>0)
+		up_newnode = PX_TRUE;
+		down_newnode = PX_TRUE;
+		for (; x< ptexture->width; x++)
 		{
-			if (PX_SurfaceGetPixel(ptexture,x,y-1)._argb.ucolor==test_color._argb.ucolor)
+			PX_SurfaceSetPixel(ptexture, x, y, fill_color);
+			//up
+			if (y > 0)
 			{
-				__PX_POINT pt;
-				pt.x=x;
-				pt.y=y-1;
-				PX_VectorPushback(&pstack,&pt);
-			}
-		}
+				px_color targettestcolor = PX_SurfaceGetPixel(ptexture, x, y - 1);
 
-		//down
-		if (y<ptexture->height-1)
-		{
-			if (PX_SurfaceGetPixel(ptexture,x,y+1)._argb.ucolor==test_color._argb.ucolor)
+				if (PX_TextureFillTestColor(targettestcolor, test_color, testRange0_1)&& targettestcolor._argb.ucolor!= fill_color._argb.ucolor)
+				{
+					if (up_newnode)
+					{
+						__PX_POINT pt;
+						pt.x = x;
+						pt.y = y - 1;
+						PX_VectorPushback(&pstack, &pt);
+						up_newnode = PX_FALSE;
+					}
+					
+				}
+				else
+				{
+					up_newnode = PX_TRUE;
+				}
+			}
+
+			//down
+			if (y < ptexture->height - 1)
 			{
-				__PX_POINT pt;
-				pt.x=x;
-				pt.y=y+1;
-				PX_VectorPushback(&pstack,&pt);
+				px_color targettestcolor = PX_SurfaceGetPixel(ptexture, x, y + 1);
+
+				if (PX_TextureFillTestColor(PX_SurfaceGetPixel(ptexture, x, y + 1), test_color, testRange0_1) && targettestcolor._argb.ucolor != fill_color._argb.ucolor)
+				{
+					if (down_newnode)
+					{
+						__PX_POINT pt;
+						pt.x = x;
+						pt.y = y + 1;
+						PX_VectorPushback(&pstack, &pt);
+						down_newnode = PX_FALSE;
+					}
+
+				}
+				else
+				{
+					down_newnode = PX_TRUE;
+				}
 			}
-		}
+			//right
 
-		PX_SurfaceSetPixel(ptexture,x,y,fill_color);
-		x++;
 
-		//left top
-		while (x<ptexture->width)
-		{
-			if (PX_SurfaceGetPixel(ptexture,x,y)._argb.ucolor!=test_color._argb.ucolor)
+			if (!PX_TextureFillTestColor(PX_SurfaceGetPixel(ptexture, x+1, y ), test_color, testRange0_1)||\
+				(PX_SurfaceGetPixel(ptexture, x+1, y)._argb.ucolor == fill_color._argb.ucolor))
 			{
 				break;
 			}
-
-			PX_SurfaceSetPixel(ptexture,x,y,fill_color);
-
-			if (x>0)
-			{
-				//up
-				if (y>0)
-				{
-					if (PX_SurfaceGetPixel(ptexture,x-1,y-1)._argb.ucolor!=test_color._argb.ucolor&&PX_SurfaceGetPixel(ptexture,x,y-1)._argb.ucolor==test_color._argb.ucolor)
-					{
-						__PX_POINT pt;
-						pt.x=x;
-						pt.y=y-1;
-						PX_VectorPushback(&pstack,&pt);
-					}
-				}
-					
-				//down
-				if (y<ptexture->height-1)
-				{
-					if (PX_SurfaceGetPixel(ptexture,x-1,y+1)._argb.ucolor!=test_color._argb.ucolor&&PX_SurfaceGetPixel(ptexture,x,y+1)._argb.ucolor==test_color._argb.ucolor)
-					{
-						__PX_POINT pt;
-						pt.x=x;
-						pt.y=y+1;
-						PX_VectorPushback(&pstack,&pt);
-					}
-				}
-					
-			}
-			else
-			{
-				//up
-				if (y>0)
-				{
-					if (PX_SurfaceGetPixel(ptexture,x,y-1)._argb.ucolor==test_color._argb.ucolor)
-					{
-						__PX_POINT pt;
-						pt.x=x;
-						pt.y=y-1;
-						PX_VectorPushback(&pstack,&pt);
-					}
-				}
-				
-				//down
-				if (y<ptexture->height-1)
-				{
-					if (PX_SurfaceGetPixel(ptexture,x,y+1)._argb.ucolor==test_color._argb.ucolor)
-					{
-						__PX_POINT pt;
-						pt.x=x;
-						pt.y=y+1;
-						PX_VectorPushback(&pstack,&pt);
-					}
-				}
-					
-			}
-			x++;
 		}
 	}
-
+	PX_VectorFree(&pstack);
 }
 
 px_void PX_TextureRegionRender(px_surface *psurface,px_texture *resTexture,px_int x,px_int y,px_int oft_left,px_int oft_top,px_int oft_right,px_int oft_bottom,PX_ALIGN refPoint,PX_TEXTURERENDER_BLEND *blend)
@@ -2032,10 +2177,10 @@ px_void PX_TextureRegionRender(px_surface *psurface,px_texture *resTexture,px_in
 				bG=(px_int)(clr._argb.g*Gb/1000);
 				bB=(px_int)(clr._argb.b*Bb/1000);
 
-				clr._argb.a=bA>255?255:(px_uchar)bA;
-				clr._argb.r=bR>255?255:(px_uchar)bR;
-				clr._argb.g=bG>255?255:(px_uchar)bG;
-				clr._argb.b=bB>255?255:(px_uchar)bB;
+				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
+				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);
+				clr._argb.g = (px_uchar)(((bG > 255) * 0xff) | bG);
+				clr._argb.b = (px_uchar)(((bB > 255) * 0xff) | bB);
 				PX_SurfaceDrawPixel(psurface,x+i,y+j,clr);
 			}
 		}
@@ -2169,10 +2314,10 @@ px_void PX_TextureRegionCopy(px_surface *psurface,px_texture *resTexture,px_int 
 				bG=(px_int)(clr._argb.g*Gb/1000);
 				bB=(px_int)(clr._argb.b*Bb/1000);
 
-				clr._argb.a=bA>255?255:(px_uchar)bA;
-				clr._argb.r=bR>255?255:(px_uchar)bR;
-				clr._argb.g=bG>255?255:(px_uchar)bG;
-				clr._argb.b=bB>255?255:(px_uchar)bB;
+				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
+				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);
+				clr._argb.g = (px_uchar)(((bG > 255) * 0xff) | bG);
+				clr._argb.b = (px_uchar)(((bB > 255) * 0xff) | bB);
 				PX_SurfaceSetPixel(psurface,x+i,y+j,clr);
 			}
 		}
@@ -2235,6 +2380,27 @@ px_bool PX_ShapeCreateFromTexture(px_memorypool *mp,px_shape *shape,px_texture *
 px_void PX_ShapeFree(px_shape *shape)
 {
 	MP_Free(shape->MP,shape->alpha);
+}
+
+px_void PX_ShapeSetPixel(px_shape* shape, px_int x, px_int y, px_uchar value)
+{
+	px_uchar* pdata;
+	pdata = (px_uchar*)shape->alpha;
+	if (x>=0&&y>=0&&x<shape->width&&y<shape->height)
+	{
+		pdata[y * shape->width + x] = value;
+	}
+}
+
+px_uchar PX_ShapeGetPixel(px_shape* shape, px_int x, px_int y)
+{
+ 	px_uchar *pdata;
+	pdata  =(px_uchar *)shape->alpha;
+	if (x >= 0 && y >= 0 && x < shape->width && y < shape->height)
+	{
+		return pdata[y  *shape->width+x];
+	}
+	return 0;
 }
 
 px_void PX_ShapeRender(px_surface *psurface,px_shape *shape,px_int x,px_int y,PX_ALIGN refPoint,px_color blendColor)
@@ -2475,11 +2641,11 @@ px_void PX_ShapeRenderEx(px_surface *psurface,px_shape *shape,px_int x,px_int y,
 	{
 		for (i=left;i<=right;i++)
 		{
-			ref_x=i*1.0/newWidth-0.5;
-			ref_y=j*1.0/newHeight-0.5;
+			ref_x = (i - newWidth / 2.0);
+			ref_y = (j - newHeight / 2.0);
 
-			mapX=(px_int)((ref_x*invCosAgl-ref_y*invSinAgl)*resWidth+resWidth/2);
-			mapY=(px_int)((ref_x*invSinAgl+ref_y*invCosAgl)*resHeight+resHeight/2);
+			mapX = (px_int)((ref_x * invCosAgl - ref_y * invSinAgl) / scale + resWidth / 2);
+			mapY = (px_int)((ref_x * invSinAgl + ref_y * invCosAgl) / scale + resHeight / 2);
 
 			if (mapX<0||mapX>=resWidth)
 			{
@@ -2530,6 +2696,22 @@ px_bool PX_ShapeCreateFromMemory(px_memorypool *mp,px_void *data,px_int size,px_
 			return PX_FALSE;
 		}
 	}
+
+
+	if (PX_PngVerify((px_byte*)data, size, &width, &height, 0))
+	{
+		if (PX_ShapeCreate(mp, shape, width, height))
+		{
+			if (!PX_PngToShapeBuffer(mp, (px_byte*)data, size, shape))
+				return PX_FALSE;
+			return PX_TRUE;
+		}
+		else
+		{
+			return PX_FALSE;
+		}
+	}
+
 
 	return PX_TRUE;
 }
@@ -2658,11 +2840,11 @@ px_void PX_ShapeRenderEx_sincos(px_surface *psurface,px_shape *shape,px_int x,px
 	{
 		for (i=left;i<=right;i++)
 		{
-			ref_x=i*1.0/newWidth-0.5;
-			ref_y=j*1.0/newHeight-0.5;
+			ref_x = (i - newWidth / 2.0);
+			ref_y = (j - newHeight / 2.0);
 
-			mapX=(px_int)((ref_x*invCosAgl-ref_y*invSinAgl)*resWidth+resWidth/2);
-			mapY=(px_int)((ref_x*invSinAgl+ref_y*invCosAgl)*resHeight+resHeight/2);
+			mapX = (px_int)((ref_x * invCosAgl - ref_y * invSinAgl) / scale + resWidth / 2);
+			mapY = (px_int)((ref_x * invSinAgl + ref_y * invCosAgl) / scale + resHeight / 2);
 
 			if (mapX<0||mapX>=resWidth)
 			{
@@ -2681,9 +2863,9 @@ px_void PX_ShapeRenderEx_sincos(px_surface *psurface,px_shape *shape,px_int x,px
 	}
 }
 
-px_void PX_ShapeRenderEx_vector(px_surface *psurface,px_shape *shape,px_int x,px_int y,PX_ALIGN refPoint,px_color blendColor,px_float scale,px_point p_vector)
+px_void PX_ShapeRenderEx_vector(px_surface *psurface,px_shape *shape,px_int x,px_int y,PX_ALIGN refPoint,px_color blendColor,px_float scale,px_point2D p_vector)
 {
-	PX_ShapeRenderEx_sincos(psurface,shape,x,y,refPoint,blendColor,scale,PX_Point_sin(p_vector),PX_Point_cos(p_vector));
+	PX_ShapeRenderEx_sincos(psurface,shape,x,y,refPoint,blendColor,scale,PX_Point2D_sin(p_vector),PX_Point2D_cos(p_vector));
 }
 
 px_void PX_TextureRenderEx_sincos(px_surface *psurface,px_texture *resTexture,px_int x,px_int y,PX_ALIGN refPoint,PX_TEXTURERENDER_BLEND *blend,px_float scale,px_float sinx,px_float cosx)
@@ -2818,11 +3000,11 @@ px_void PX_TextureRenderEx_sincos(px_surface *psurface,px_texture *resTexture,px
 		{
 			for (i=left;i<=right;i++)
 			{
-				ref_x=i*1.0/newWidth-0.5;
-				ref_y=j*1.0/newHeight-0.5;
+				ref_x = (i - newWidth / 2.0);
+				ref_y = (j - newHeight / 2.0);
 
-				mapX=(px_int)((ref_x*invCosAgl-ref_y*invSinAgl)*resWidth+resWidth/2);
-				mapY=(px_int)((ref_x*invSinAgl+ref_y*invCosAgl)*resHeight+resHeight/2);
+				mapX = (px_int)((ref_x * invCosAgl - ref_y * invSinAgl) / scale + resWidth / 2);
+				mapY = (px_int)((ref_x * invSinAgl + ref_y * invCosAgl) / scale + resHeight / 2);
 
 				if (mapX<0||mapX>=resWidth)
 				{
@@ -2840,10 +3022,10 @@ px_void PX_TextureRenderEx_sincos(px_surface *psurface,px_texture *resTexture,px
 				bG=(px_int)(clr._argb.g*Gb/1000);
 				bB=(px_int)(clr._argb.b*Bb/1000);
 
-				clr._argb.a=bA>255?255:(px_uchar)bA;
-				clr._argb.r=bR>255?255:(px_uchar)bR;
-				clr._argb.g=bG>255?255:(px_uchar)bG;
-				clr._argb.b=bB>255?255:(px_uchar)bB;
+				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
+				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);
+				clr._argb.g = (px_uchar)(((bG > 255) * 0xff) | bG);
+				clr._argb.b = (px_uchar)(((bB > 255) * 0xff) | bB);
 				PX_SurfaceDrawPixel(psurface,x+i,y+j,clr);
 			}
 
@@ -2856,11 +3038,11 @@ px_void PX_TextureRenderEx_sincos(px_surface *psurface,px_texture *resTexture,px
 		{
 			for (i=left;i<=right;i++)
 			{
-				ref_x=i*1.0/newWidth-0.5;
-				ref_y=j*1.0/newHeight-0.5;
+				ref_x = (i - newWidth / 2.0);
+				ref_y = (j - newHeight / 2.0);
 
-				mapX=(px_int)((ref_x*invCosAgl-ref_y*invSinAgl)*resWidth+resWidth/2);
-				mapY=(px_int)((ref_x*invSinAgl+ref_y*invCosAgl)*resHeight+resHeight/2);
+				mapX = (px_int)((ref_x * invCosAgl - ref_y * invSinAgl) / scale + resWidth / 2);
+				mapY = (px_int)((ref_x * invSinAgl + ref_y * invCosAgl) / scale + resHeight / 2);
 
 				if (mapX<0||mapX>=resWidth)
 				{
@@ -2880,9 +3062,9 @@ px_void PX_TextureRenderEx_sincos(px_surface *psurface,px_texture *resTexture,px
 }
 
 
-px_void PX_TextureRenderEx_vector(px_surface *psurface,px_texture *resTexture,px_int x,px_int y,PX_ALIGN refPoint,PX_TEXTURERENDER_BLEND *blend,px_float scale,px_point p_vector)
+px_void PX_TextureRenderEx_vector(px_surface *psurface,px_texture *resTexture,px_int x,px_int y,PX_ALIGN refPoint,PX_TEXTURERENDER_BLEND *blend,px_float scale,px_point2D p_vector)
 {
-	PX_TextureRenderEx_sincos(psurface,resTexture,x,y,refPoint,blend,scale,PX_Point_sin(p_vector),PX_Point_cos(p_vector));
+	PX_TextureRenderEx_sincos(psurface,resTexture,x,y,refPoint,blend,scale,PX_Point2D_sin(p_vector),PX_Point2D_cos(p_vector));
 }
 
 
@@ -2894,3 +3076,90 @@ px_bool PX_TextureCopy(px_memorypool *mp,px_texture *restexture,px_texture *dest
 	return PX_TRUE;
 }
 
+px_bool PX_TextureScaleToTexture( px_texture* resTexture,  px_texture* out)
+{
+	px_int newWidth = out->width;
+	px_int newHeight= out->height;
+	px_float SampleWidth = (px_float)(resTexture->width) / (newWidth);
+	px_float SampleHeight = (px_float)(resTexture->height) / (newHeight);
+	px_float SampleX, SampleY, SampleArea, u, v, cellw, cellh, mixa, mixr, mixg, mixb;
+	px_color* Dst, * Src = (px_color*)resTexture->surfaceBuffer;
+	px_color SampleColor, MixColor;
+	px_int xoft, yoft, horz, vcl;
+
+	if (newWidth < 0 || newHeight < 0)
+	{
+		return PX_FALSE;
+	}
+	if (!(newHeight && newWidth))
+	{
+		return PX_FALSE;
+	}
+
+	Dst = (px_color*)out->surfaceBuffer;
+
+	SampleArea = SampleHeight * SampleWidth;
+
+	for (yoft = 0; yoft < newHeight; yoft++)
+	{
+		for (xoft = 0; xoft < newWidth; xoft++)
+		{
+			//reset sample color
+			MixColor._argb.ucolor = 0;
+
+			SampleX = xoft * SampleWidth;
+			SampleY = yoft * SampleHeight;
+			mixa = 0;
+			mixr = 0;
+			mixg = 0;
+			mixb = 0;
+
+			u = SampleX;
+			for (horz = PX_TRUNC(SampleX); horz <= PX_TRUNC(SampleX + SampleWidth);)
+			{
+				v = SampleY;
+				if (PX_TRUNC(u) == PX_TRUNC(SampleX + SampleWidth))
+				{
+					cellw = SampleX + SampleWidth - u;
+				}
+				else
+				{
+					cellw = horz + 1 - u;
+				}
+
+				for (vcl = PX_TRUNC(SampleY); vcl <= PX_TRUNC(SampleY + SampleHeight);)
+				{
+					if (PX_TRUNC(v) == PX_TRUNC(SampleY + SampleHeight))
+					{
+						cellh = SampleY + SampleHeight - v;
+					}
+					else
+					{
+						cellh = vcl + 1 - v;
+					}
+					if (horz < resTexture->width&& vcl < resTexture->height)
+						SampleColor = PX_SURFACECOLOR(resTexture, horz, vcl);
+					else
+						SampleColor._argb.ucolor = 0;
+
+					mixa += SampleColor._argb.a * cellh * cellw / SampleArea;
+					mixr += SampleColor._argb.r * cellh * cellw / SampleArea;
+					mixg += SampleColor._argb.g * cellh * cellw / SampleArea;
+					mixb += SampleColor._argb.b * cellh * cellw / SampleArea;
+
+
+					vcl++;
+					v = (px_float)vcl;
+				}
+				horz++;
+				u = (px_float)horz;
+			}
+			mixa > 255 ? mixa = 255 : 0;
+			mixr > 255 ? mixr = 255 : 0;
+			mixg > 255 ? mixg = 255 : 0;
+			mixb > 255 ? mixb = 255 : 0;
+			Dst[xoft + yoft * newWidth] = PX_COLOR((px_uchar)PX_APO(mixa), (px_uchar)mixr, (px_uchar)mixg, (px_uchar)mixb);;
+		}
+	}
+	return PX_TRUE;
+}

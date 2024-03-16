@@ -36,7 +36,7 @@ typedef struct
 }PX_Object_SelectBar;
 
 PX_Object_SelectBar *PX_Object_GetSelectBar(PX_Object *pSelecrBar);
-PX_Object * PX_Object_SelectBarCreate(px_memorypool *mp,PX_Object *Parent,px_int x,int y,px_int width,px_int height,PX_FontModule *fontmodule);
+PX_Object * PX_Object_SelectBarCreate(px_memorypool *mp,PX_Object *Parent,px_int x,px_int y,px_int width,px_int height,PX_FontModule *fontmodule);
 px_int  PX_Object_SelectBarAddItem(PX_Object *PX_Object_SelectBar,const px_char Text[]);
 px_void PX_Object_SelectBarClear(PX_Object* pSelectBarObject);
 px_void PX_Object_SelectBarRemoveItem(PX_Object* PX_Object_SelectBar, px_int index);
@@ -51,6 +51,9 @@ px_void PX_Object_SelectBarSetFontColor(PX_Object *pObject,px_color color);
 px_void PX_Object_SelectBarSetCursorColor(PX_Object *pObject,px_color color);
 px_void PX_Object_SelectBarSetBorderColor(PX_Object *pObject,px_color color);
 px_void PX_Object_SelectBarSetBackgroundColor(PX_Object *pObject,px_color color);
+px_void PX_Object_SelectBarSetMaxDisplayCount(PX_Object* pObject, px_int color);
 
+
+PX_Designer_ObjectDesc PX_Object_SelectBarDesignerInstall();
 #endif
 

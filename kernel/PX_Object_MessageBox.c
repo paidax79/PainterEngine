@@ -4,7 +4,7 @@ PX_Object_MessageBox *PX_Object_GetMessageBox(PX_Object *pObject)
 {
 	if (pObject->Type==PX_OBJECT_TYPE_MESSAGEBOX)
 	{
-		return (PX_Object_MessageBox *)pObject->pObject;
+		return (PX_Object_MessageBox *)pObject->pObjectDesc;
 	}
 	return PX_NULL;
 }
@@ -61,9 +61,29 @@ px_void PX_Object_MessageBoxClose(PX_Object *pObject)
 	
 }
 
+//set mode
+px_void PX_Object_MessageBoxSetMode(PX_Object *pObject, PX_MESSAGEBOX_COLORMOD mode)
+{
+	PX_Object_MessageBox *pMessageBox=PX_Object_GetMessageBox(pObject);
+	if (pMessageBox)
+	{
+		pMessageBox->colormod=mode;
+	}
+}
+
+//set fillcolor
+px_void PX_Object_MessageBoxSetFillColor(PX_Object *pObject, px_color color)
+{
+	PX_Object_MessageBox *pMessageBox=PX_Object_GetMessageBox(pObject);
+	if (pMessageBox)
+	{
+		pMessageBox->fillbackgroundcolor=color;
+	}
+}
+
 static px_void PX_Object_MessageBoxRender(px_surface *pSurface,PX_Object *pObject,px_dword elapsed)
 {
-
+	px_float x, y, w, h;
 	px_color backGroundColor,frontColor;
 	PX_Object_MessageBox *pm=PX_Object_GetMessageBox(pObject);
 	if (elapsed>2000)
@@ -76,12 +96,28 @@ static px_void PX_Object_MessageBoxRender(px_surface *pSurface,PX_Object *pObjec
 		PX_SurfaceClear(pSurface,0,0,pSurface->width-1,pSurface->height-1,pm->fillbackgroundcolor);
 	}
 
+	PX_OBJECT_INHERIT_CODE(pm->btn_Ok, x, y, w, h);
 
-	pm->btn_Ok->x=pSurface->width/2+200.0f;
-	pm->btn_Ok->y=pSurface->height/2+150.0f;
+	pm->btn_Ok->x=pSurface->width/2+200.0f-(x- pm->btn_Ok->x);
+	pm->btn_Ok->y=pSurface->height/2+150.0f-(y - pm->btn_Ok->y);
 
-	pm->btn_Cancel->x=pSurface->width/2+300.0f;
-	pm->btn_Cancel->y=pSurface->height/2+150.0f;
+	PX_OBJECT_INHERIT_CODE(pm->btn_Ok, x, y, w, h);
+	pm->btn_Cancel->x=pSurface->width/2+300.0f - (x - pm->btn_Ok->x);
+	pm->btn_Cancel->y=pSurface->height/2+150.0f - (y - pm->btn_Ok->y);
+
+
+	if (pm->btn_Ok->x > pSurface->width - pm->btn_Ok->Width - 100)
+		pm->btn_Ok->x = pSurface->width - pm->btn_Ok->Width - 100;
+
+	if (pm->btn_Ok->y > pSurface->height - pm->btn_Ok->Height - 1)
+		pm->btn_Ok->y = pSurface->height - pm->btn_Ok->Height - 1;
+
+	if (pm->btn_Cancel->x > pSurface->width - pm->btn_Cancel->Width - 30)
+		pm->btn_Cancel->x = pSurface->width - pm->btn_Cancel->Width - 30;
+
+	if (pm->btn_Cancel->y > pSurface->height - pm->btn_Cancel->Height - 1)
+		pm->btn_Cancel->y = pSurface->height - pm->btn_Cancel->Height - 1;
+
 
 	pm->edit_inputbox->x=pSurface->width/2-100.0f;
 	pm->edit_inputbox->y=pSurface->height/2-12.0f;
@@ -166,6 +202,10 @@ static px_void PX_Object_MessageBoxRender(px_surface *pSurface,PX_Object *pObjec
 px_void PX_Object_MessageBoxAlertOk(PX_Object *pObject,const px_char *message,PX_Object_MessageBoxCallBack func_callback,px_void *ptr)
 {
 	PX_Object_MessageBox *pm=PX_Object_GetMessageBox(pObject);
+	if (!pm)
+	{
+		return;
+	}
 	pm->function_yes=func_callback;
 	pm->function_yes_ptr=ptr;
 

@@ -17,7 +17,7 @@ PX_Object * PX_Object_AutoTextCreate(px_memorypool *mp,PX_Object *Parent,px_int 
 	}
 
 
-	pObject=PX_ObjectCreate(mp,Parent,(px_float)x,(px_float)y,0,(px_float)width,0,0);
+	pObject=PX_ObjectCreate(mp,Parent,(px_float)x,(px_float)y,0,(px_float)width,16,0);
 
 	if (pObject==PX_NULL)
 	{
@@ -30,7 +30,7 @@ PX_Object * PX_Object_AutoTextCreate(px_memorypool *mp,PX_Object *Parent,px_int 
 		return PX_NULL;
 	}
 
-	pObject->pObject=pAt;
+	pObject->pObjectDesc=pAt;
 	pObject->Type=PX_OBJECT_TYPE_AUTOTEXT;
 	pObject->ReceiveEvents=PX_TRUE;
 	pObject->Func_ObjectFree=PX_Object_AutoTextFree;
@@ -44,10 +44,11 @@ PX_Object * PX_Object_AutoTextCreate(px_memorypool *mp,PX_Object *Parent,px_int 
 px_void PX_Object_AutoTextRender(px_surface *psurface, PX_Object *pObject,px_uint elapsed)
 {
 	px_int x_draw_oft,y_draw_oft,cursor,fsize;
-	PX_Object_AutoText *pAt=(PX_Object_AutoText *)pObject->pObject;
+	PX_Object_AutoText *pAt=(PX_Object_AutoText *)pObject->pObjectDesc;
 	const px_char *Text=pAt->text.buffer;
 	px_float objx,objy,objHeight,objWidth;
 	px_float inheritX,inheritY;
+	px_float h = 0;
 
 	PX_ObjectGetInheritXY(pObject,&inheritX,&inheritY);
 
@@ -66,7 +67,7 @@ px_void PX_Object_AutoTextRender(px_surface *psurface, PX_Object *pObject,px_uin
 		return;
 	}
 
-	x_draw_oft=(px_int)objx;
+	x_draw_oft=(px_int)objx+5;
 	y_draw_oft=(px_int)objy;
 
 	cursor=0;
@@ -79,7 +80,7 @@ px_void PX_Object_AutoTextRender(px_surface *psurface, PX_Object *pObject,px_uin
 		{
 			px_dword code;
 			px_int width,height;
-			fsize=PX_FontModuleGetCharacterDesc(pAt->fontModule,Text+cursor,&code,&width,&height);
+			fsize=PX_FontModuleGetOneCharacterDesc(pAt->fontModule,Text+cursor,&code,&width,&height);
 			if (!fsize)
 			{
 				break;
@@ -90,18 +91,21 @@ px_void PX_Object_AutoTextRender(px_surface *psurface, PX_Object *pObject,px_uin
 			}else if (code=='\n')
 			{
 				x_draw_oft=(px_int)objx;
-				y_draw_oft+=pAt->fontModule->max_Height;
+				y_draw_oft+=pAt->fontModule->max_Height+2;
+				h += pAt->fontModule->max_Height + 2;
 			}
 			else
 			{
+				if(psurface)
 				PX_FontModuleDrawCharacter(psurface,pAt->fontModule,x_draw_oft,y_draw_oft,code,pAt->TextColor);
 				x_draw_oft+=width;
 			}
 
-			if (x_draw_oft>objx+objWidth-PX_FontGetAscCharactorWidth()*2)
+			if (x_draw_oft>objx+objWidth-pAt->fontModule->max_Width*2)
 			{
 				x_draw_oft=(px_int)objx;
-				y_draw_oft+=pAt->fontModule->max_Height;
+				y_draw_oft+=pAt->fontModule->max_Height+2;
+				h += pAt->fontModule->max_Height + 2;
 			}
 
 		}
@@ -115,11 +119,13 @@ px_void PX_Object_AutoTextRender(px_surface *psurface, PX_Object *pObject,px_uin
 			}else if (Text[cursor]=='\n')
 			{
 				x_draw_oft=(px_int)objx;
-				y_draw_oft+=__PX_FONT_HEIGHT;
+				y_draw_oft+=__PX_FONT_HEIGHT+2;
+				h += __PX_FONT_HEIGHT + 2;
 			}
 			else if(Text[cursor])
 			{
-				PX_FontDrawChar(psurface,x_draw_oft,y_draw_oft,Text[cursor],pAt->TextColor);
+				if (psurface)
+					PX_FontDrawChar(psurface,x_draw_oft,y_draw_oft,Text[cursor],pAt->TextColor);
 				x_draw_oft+=__PX_FONT_ASCSIZE;
 			}
 			else
@@ -130,79 +136,40 @@ px_void PX_Object_AutoTextRender(px_surface *psurface, PX_Object *pObject,px_uin
 			if (x_draw_oft>objx+objWidth-PX_FontGetAscCharactorWidth()*2)
 			{
 				x_draw_oft=(px_int)objx;
-				y_draw_oft+=__PX_FONT_HEIGHT;
+				y_draw_oft+=__PX_FONT_HEIGHT+2;
+				h += __PX_FONT_HEIGHT + 2;
 			}
 		}
 		cursor+=fsize;
 	}
+	if (pAt->fontModule)
+	{
+		h += pAt->fontModule->max_Height + 2;
+	}
+	else
+	{
+		h += __PX_FONT_HEIGHT + 2;
+	}
+	pObject->Height = h;
+	if(pObject->Height<16) pObject->Height = 16;
 }
 
-px_void PX_Object_AutoTextFree(PX_Object *Obj)
+px_void PX_Object_AutoTextFree(PX_Object *pObject)
 {
-	PX_Object_AutoText * pAt=PX_Object_GetAutoText(Obj);
+	PX_Object_AutoText * pAt=PX_Object_GetAutoText(pObject);
 	if (!pAt)
 	{
+		PX_ASSERT();
 		return;
 	}
 	PX_StringFree(&pAt->text);
 }
 
-px_int PX_Object_AutoTextGetHeight(PX_Object *pObject)
+
+PX_Object_AutoText * PX_Object_GetAutoText(PX_Object *pObject)
 {
-	px_int i;
-	px_int w=0;
-	px_int h=0;
-	PX_Object_AutoText * pAt=PX_Object_GetAutoText(pObject);
-
-	if (!pAt)
-	{
-		return 0;
-	}
-
-	for (i=0;i<PX_strlen(pAt->text.buffer);i++)
-	{
-		if (pAt->text.buffer[i]=='\n')
-		{
-			w=0;
-			h+=PX_FontGetCharactorHeight();
-			continue;
-		}
-		if (pAt->text.buffer[i]=='\r')
-		{
-			continue;
-		}
-
-		if (pAt->text.buffer[i]=='\t')
-		{
-			w+=PX_FontGetAscCharactorWidth();
-			continue;
-		}
-
-		if (pAt->text.buffer[i]&0x80)
-		{
-			i++;
-		}
-		else
-		{
-			if(w+PX_FontGetAscCharactorWidth()>pObject->Width-PX_FontGetAscCharactorWidth()*2)
-			{
-				w=0;
-				h+=PX_FontGetCharactorHeight();
-				w+=PX_FontGetAscCharactorWidth();
-			}
-			else
-			{
-				w+=PX_FontGetAscCharactorWidth();
-			}
-		}
-	}
-	return h+PX_FontGetCharactorHeight();
-}
-
-PX_Object_AutoText * PX_Object_GetAutoText(PX_Object *Object)
-{
-	if(Object->Type==PX_OBJECT_TYPE_AUTOTEXT)
-		return (PX_Object_AutoText *)Object->pObject;
+	if(pObject->Type==PX_OBJECT_TYPE_AUTOTEXT)
+		return (PX_Object_AutoText *)pObject->pObjectDesc;
 	else
 		return PX_NULL;
 }
@@ -217,15 +184,87 @@ px_void PX_Object_AutoTextSetTextColor(PX_Object *pObject,px_color Color)
 	pAt->TextColor=Color;
 }
 
-px_void PX_Object_AutoTextSetText(PX_Object *Obj,const px_char *Text)
+px_void PX_Object_AutoTextSetText(PX_Object *pObject,const px_char *Text)
 {
-	PX_Object_AutoText * pAt=PX_Object_GetAutoText(Obj);
+	PX_Object_AutoText * pAt=PX_Object_GetAutoText(pObject);
 	if (!pAt)
 	{
 		return;
 	}
 	PX_StringClear(&pAt->text);
 	PX_StringCat(&pAt->text,Text);
-	Obj->Height=(px_float)PX_Object_AutoTextGetHeight(Obj);
+	PX_Object_AutoTextRender(0, pObject, 0);
+
 }
 
+const px_char* PX_Object_AutoTextGetText(PX_Object* pObject)
+{
+	PX_Object_AutoText* pAt = PX_Object_GetAutoText(pObject);
+	if (!pAt)
+	{
+		return 0;
+	}
+	return pAt->text.buffer;
+}
+
+//////////////////////////////////////////////////////////////////////////
+//edit
+//////////////////////////////////////////////////////////////////////////
+PX_Object* PX_Designer_AutoTextCreate(px_memorypool* mp, PX_Object* pparent, px_float x, px_float y, px_float width, px_float height, px_void* ptr)
+{
+	PX_FontModule* fm = (PX_FontModule*)ptr;
+	return PX_Object_AutoTextCreate(mp, pparent, (px_int)x, (px_int)y, 128, fm);
+}
+
+px_void PX_Designer_AutoTextSetText(PX_Object* pobject, const px_char text[])
+{
+	PX_Object_AutoTextSetText(pobject, text);
+}
+
+px_bool PX_Designer_AutoTextGetText(PX_Object* pobject, px_string* str)
+{
+	return PX_StringSet(str, PX_Object_AutoTextGetText(pobject));
+}
+
+PX_Designer_ObjectDesc PX_Object_AutoTextDesignerInstall()
+{
+	PX_Designer_ObjectDesc AutoText;
+	px_int i = 0;
+	PX_memset(&AutoText, 0, sizeof(AutoText));
+	PX_strcat(AutoText.Name, "autotext");
+
+	AutoText.createfunc = PX_Designer_AutoTextCreate;
+	AutoText.type = PX_DESIGNER_OBJECT_TYPE_UI;
+
+	PX_strcat(AutoText.properties[i].Name, "id");
+	AutoText.properties[i].getstring = PX_Designer_GetID;
+	AutoText.properties[i].setstring = PX_Designer_SetID;
+	i++;
+
+	PX_strcat(AutoText.properties[i].Name, "x");
+	AutoText.properties[i].getfloat = PX_Designer_GetX;
+	AutoText.properties[i].setfloat = PX_Designer_SetX;
+	i++;
+
+	PX_strcat(AutoText.properties[i].Name, "y");
+	AutoText.properties[i].getfloat = PX_Designer_GetY;
+	AutoText.properties[i].setfloat = PX_Designer_SetY;
+	i++;
+
+	PX_strcat(AutoText.properties[i].Name, "width");
+	AutoText.properties[i].getfloat = PX_Designer_GetWidth;
+	AutoText.properties[i].setfloat = PX_Designer_SetWidth;
+	i++;
+
+	PX_strcat(AutoText.properties[i].Name, "height");
+	AutoText.properties[i].getfloat = PX_Designer_GetHeight;
+	AutoText.properties[i].setfloat = PX_Designer_SetHeight;
+	i++;
+
+	PX_strcat(AutoText.properties[i].Name, "text");
+	AutoText.properties[i].setstring = PX_Designer_AutoTextSetText;
+	AutoText.properties[i].getstring = PX_Designer_AutoTextGetText;
+	i++;
+	return AutoText;
+
+}

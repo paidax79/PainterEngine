@@ -1,8 +1,6 @@
 //////////////////////////////////////////////////////////////////////////
-//Painter Engine Interpreter
-//code by DBinary, matrixcascade@gmail.com
-//QQ:477608346,tel-18959060883
-//include script compiler & parser & AST
+//Painter Engine Script Interpreter by DBinary
+
 
 #ifndef _PX_SCRIPT_TRANSLATOR_H
 #define _PX_SCRIPT_TRANSLATOR_H
@@ -18,6 +16,7 @@
 typedef enum
 {
 	PX_SCRIPT_PARSER_VAR_TYPE_INT,
+	PX_SCRIPT_PARSER_VAR_TYPE_HANDLE,
 	PX_SCRIPT_PARSER_VAR_TYPE_STRING,
 	PX_SCRIPT_PARSER_VAR_TYPE_FLOAT,
 	PX_SCRIPT_PARSER_VAR_TYPE_MEMORY,
@@ -25,12 +24,14 @@ typedef enum
 	PX_SCRIPT_PARSER_VAR_TYPE_STRUCT,
 
 	PX_SCRIPT_PARSER_VAR_TYPE_INT_ARRAY,
+	PX_SCRIPT_PARSER_VAR_TYPE_HANDLE_ARRAY,
 	PX_SCRIPT_PARSER_VAR_TYPE_STRING_ARRAY,
 	PX_SCRIPT_PARSER_VAR_TYPE_FLOAT_ARRAY,
 	PX_SCRIPT_PARSER_VAR_TYPE_MEMORY_ARRAY,
 	PX_SCRIPT_PARSER_VAR_TYPE_SET_ARRAY,
 
 	PX_SCRIPT_PARSER_VAR_TYPE_INT_PTR,
+	PX_SCRIPT_PARSER_VAR_TYPE_HANDLE_PTR,
 	PX_SCRIPT_PARSER_VAR_TYPE_STRING_PTR,
 	PX_SCRIPT_PARSER_VAR_TYPE_FLOAT_PTR,
 	PX_SCRIPT_PARSER_VAR_TYPE_MEMORY_PTR,
@@ -147,23 +148,28 @@ typedef enum
 	PX_SCRIPT_AST_OPERAND_TYPE_STRING, //string var
 	PX_SCRIPT_AST_OPERAND_TYPE_MEMORY,//memory var
 	PX_SCRIPT_AST_OPERAND_TYPE_STRUCT,   //set xx var
+	PX_SCRIPT_AST_OPERAND_TYPE_HANDLE,//handle var
 
 	PX_SCRIPT_AST_OPERAND_TYPE_INT_CONST,//int const
 	PX_SCRIPT_AST_OPERAND_TYPE_FLOAT_CONST,//float const
 	PX_SCRIPT_AST_OPERAND_TYPE_STRING_CONST,//string const
 	PX_SCRIPT_AST_OPERAND_TYPE_MEMORY_CONST,//memory const
+	PX_SCRIPT_AST_OPERAND_TYPE_HANDLE_CONST,//handle const
 
 	PX_SCRIPT_AST_OPERAND_TYPE_INT_PTR, //int var[x]
+	PX_SCRIPT_AST_OPERAND_TYPE_HANDLE_PTR, //handle var[x]
 	PX_SCRIPT_AST_OPERAND_TYPE_FLOAT_PTR,//float var[x]
 	PX_SCRIPT_AST_OPERAND_TYPE_STRING_PTR,//string var[x]
 	PX_SCRIPT_AST_OPERAND_TYPE_MEMORY_PTR,//memory var[x]
 	PX_SCRIPT_AST_OPERAND_TYPE_STRUCT_PTR,//set xx var[x]
 
 	PX_SCRIPT_AST_OPERAND_TYPE_INT_PTR_CONST, //int var[] 
+	PX_SCRIPT_AST_OPERAND_TYPE_HANDLE_PTR_CONST, //handle var[]
 	PX_SCRIPT_AST_OPERAND_TYPE_FLOAT_PTR_CONST,//float var[]
 	PX_SCRIPT_AST_OPERAND_TYPE_STRING_PTR_CONST,//string var[]
 	PX_SCRIPT_AST_OPERAND_TYPE_MEMORY_PTR_CONST,//memory var[]
-	PX_SCRIPT_AST_OPERAND_TYPE_SET_PTR_CONST,//set xx var[]
+	PX_SCRIPT_AST_OPERAND_TYPE_STRUCT_PTR_CONST,//set xx var[]
+	
 
 	PX_SCRIPT_AST_OPERAND_TYPE_STRING_IDX,
 	PX_SCRIPT_AST_OPERAND_TYPE_MEMORY_IDX,
@@ -185,7 +191,7 @@ typedef enum
 {
 	PX_SCRIPT_TRANSLATOR_FUNCTION_TYPE_HOST,
 	PX_SCRIPT_TRANSLATOR_FUNCTION_TYPE_EXPORT,
-	PX_SCRIPT_TRANSLATOR_FUNCTION_TYPE_CUSTOM,
+	PX_SCRIPT_TRANSLATOR_FUNCTION_TYPE_INLINE,
 }PX_SCRIPT_TRANSLATOR_FUNCTION_TYPE;
 
 typedef enum
@@ -200,6 +206,7 @@ typedef enum
 #define PX_SCRIPT_TRANSLATOR_KEYWORD_THREAD "THREAD"
 
 #define PX_SCRIPT_TRANSLATOR_KEYWORD_VAR_INT "INT"
+#define PX_SCRIPT_TRANSLATOR_KEYWORD_VAR_HANDLE "HANDLE"
 #define PX_SCRIPT_TRANSLATOR_KEYWORD_VAR_STRING "STRING"
 #define PX_SCRIPT_TRANSLATOR_KEYWORD_VAR_MEMORY "MEMORY"
 #define PX_SCRIPT_TRANSLATOR_KEYWORD_VAR_FLOAT "FLOAT"
@@ -225,7 +232,7 @@ typedef enum
 #define PX_SCRIPT_TRANSLATOR_KEYWORD_HOST "HOST"
 #define PX_SCRIPT_TRANSLATOR_KEYWORD_FUNCTION "FUNCTION"
 #define PX_SCRIPT_TRANSLATOR_KEYWORD_EXPORT "EXPORT"
-
+#define PX_SCRIPT_TRANSLATOR_KEYWORD_INLINE "INLINE"
 
 
 typedef struct  
@@ -278,7 +285,7 @@ typedef struct
 {
 	PX_SCRIPT_AST_OPERAND_TYPE operandType;
 	PX_SCRIPT_VARIABLE_REGION region;
-	PX_SCRIPT_STRUCT *pSet;
+	PX_SCRIPT_STRUCT *pStruct;
 	union
 	{
 		px_int	_oft;
@@ -418,12 +425,13 @@ typedef struct
 	px_int    currentAllocStackSize;
 	px_vector v_astStructure;
 	px_int _jFlag;
-}PX_SCRIPT_Analysis;
+	px_char PX_Script_InterpreterError[256];
+}PX_ScriptInterpreter;
 
 px_bool PX_ScriptCompilerInitialize(PX_SCRIPT_LIBRARY *lib,px_memorypool *mp);
 px_bool PX_ScriptCompilerLoad(PX_SCRIPT_LIBRARY *lib,const px_char *code);
-px_bool PX_ScriptCompilerCompile(PX_SCRIPT_LIBRARY *lib,const px_char *name,px_string *ASM,px_int StackSize);
-px_void PX_ScriptCompilerFree(PX_SCRIPT_LIBRARY *lib);
-px_char *PX_ScriptCompilerError(void);
-px_bool PX_ScriptInterpreterExpression(PX_SCRIPT_Analysis *analysis,px_char *expr,px_string *out,PX_SCRIPT_AST_OPERAND *retOperand);
+px_bool PX_ScriptCompilerCompile(PX_SCRIPT_LIBRARY* lib, const px_char* name, px_string* ASM, px_int LocalStackSize, px_char error[], px_int size);
+px_void PX_ScriptCompilerFree(PX_SCRIPT_LIBRARY* lib);
+px_char* PX_ScriptCompilerError(PX_ScriptInterpreter* analysis);
+px_bool PX_ScriptInterpreterExpression(PX_ScriptInterpreter* analysis, px_char* expr, px_string* out, PX_SCRIPT_AST_OPERAND* retOperand);
 #endif

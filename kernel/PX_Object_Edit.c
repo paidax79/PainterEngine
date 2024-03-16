@@ -4,7 +4,7 @@
 px_void PX_Object_EditGetCursorXY(PX_Object *pObject, px_int *cx, px_int *cy, px_int *height)
 {
 	px_int x = 0, y = 0, cursor = 0, fsize = 0;
-	PX_Object_Edit *pEdit = (PX_Object_Edit *)pObject->pObject;
+	PX_Object_Edit *pEdit = (PX_Object_Edit *)pObject->pObjectDesc;
 	const px_char *Text = pEdit->text.buffer;
 	px_float objx, objy, objWidth, objHeight;
 	px_float inheritX, inheritY;
@@ -43,7 +43,7 @@ px_void PX_Object_EditGetCursorXY(PX_Object *pObject, px_int *cx, px_int *cy, px
 		{
 			px_dword code;
 			px_int width, height;
-			fsize = PX_FontModuleGetCharacterDesc(pEdit->fontModule, Text + cursor, &code, &width, &height);
+			fsize = PX_FontModuleGetOneCharacterDesc(pEdit->fontModule, Text + cursor, &code, &width, &height);
 			if (!fsize)
 			{
 				break;
@@ -114,7 +114,7 @@ px_void PX_Object_EditGetCursorXY(PX_Object *pObject, px_int *cx, px_int *cy, px
 px_void PX_Object_EditUpdateCursorViewRegion(PX_Object *pObject)
 {
 	px_int cursorX, cursorY, cursorHeight;
-	PX_Object_Edit *pEdit = (PX_Object_Edit *)pObject->pObject;
+	PX_Object_Edit *pEdit = (PX_Object_Edit *)pObject->pObjectDesc;
 	px_float objWidth, objHeight;
 	objWidth = pObject->Width;
 	objHeight = pObject->Height;
@@ -148,16 +148,16 @@ px_void PX_Object_EditUpdateCursorViewRegion(PX_Object *pObject)
 
 }
 
-px_void PX_Object_EditOnMouseMove(PX_Object *Object,PX_Object_Event e,px_void *user_ptr)
+px_void PX_Object_EditOnMouseMove(PX_Object *pObject,PX_Object_Event e,px_void *user_ptr)
 {
-	PX_Object_Edit *pEdit=PX_Object_GetEdit(Object);
+	PX_Object_Edit *pEdit=PX_Object_GetEdit(pObject);
 	px_float x,y;
 	x=PX_Object_Event_GetCursorX(e);
 	y=PX_Object_Event_GetCursorY(e);
 
 	if (pEdit)
 	{
-		if(PX_ObjectIsPointInRegion(Object,(px_float)x,(px_float)y))
+		if(PX_ObjectIsPointInRegion(pObject,(px_float)x,(px_float)y))
 		{
 			pEdit->state=PX_OBJECT_EDIT_STATE_ONCURSOR;
 		}
@@ -168,40 +168,40 @@ px_void PX_Object_EditOnMouseMove(PX_Object *Object,PX_Object_Event e,px_void *u
 	}
 }
 px_void PX_Object_EditUpdateCursorOnDown(PX_Object *pObject,px_int cx,px_int cy);
-px_void PX_Object_EditOnMouseLButtonDown(PX_Object *Object,PX_Object_Event e,px_void *user_ptr)
+px_void PX_Object_EditOnMouseLButtonDown(PX_Object *pObject,PX_Object_Event e,px_void *user_ptr)
 {
-	PX_Object_Edit *pEdit=PX_Object_GetEdit(Object);
+	PX_Object_Edit *pEdit=PX_Object_GetEdit(pObject);
 	px_float x,y;
 	px_float objx,objy;
 	px_float inheritX,inheritY;
 
-	PX_ObjectGetInheritXY(Object,&inheritX,&inheritY);
+	PX_ObjectGetInheritXY(pObject,&inheritX,&inheritY);
 
-	objx=(Object->x+inheritX);
-	objy=(Object->y+inheritY);
+	objx=(pObject->x+inheritX);
+	objy=(pObject->y+inheritY);
 
 	x=PX_Object_Event_GetCursorX(e);
 	y=PX_Object_Event_GetCursorY(e);
 
 	if (pEdit)
 	{
-		if(PX_ObjectIsPointInRegion(Object,(px_float)x,(px_float)y))
+		if(PX_ObjectIsPointInRegion(pObject,(px_float)x,(px_float)y))
 		{
-			PX_Object_EditSetFocus(Object,PX_TRUE);
-			PX_Object_EditUpdateCursorOnDown(Object,(px_int)(x-objx),(px_int)(y-objy));
+			PX_Object_EditSetFocus(pObject,PX_TRUE);
+			PX_Object_EditUpdateCursorOnDown(pObject,(px_int)(x-objx),(px_int)(y-objy));
 		}
 		else
-			PX_Object_EditSetFocus(Object,PX_FALSE);
+			PX_Object_EditSetFocus(pObject,PX_FALSE);
 	}
 }
 
-px_void PX_Object_EditOnKeyboardString(PX_Object *Object,PX_Object_Event e,px_void *user_ptr)
+px_void PX_Object_EditOnKeyboardString(PX_Object *pObject,PX_Object_Event e,px_void *user_ptr)
 {
-	PX_Object_Edit *pEdit=PX_Object_GetEdit(Object);
+	PX_Object_Edit *pEdit=PX_Object_GetEdit(pObject);
 
 	if (pEdit->onFocus)
 	{
-		PX_Object_EditAddString(Object,PX_Object_Event_GetStringPtr(e));
+		PX_Object_EditAddString(pObject,PX_Object_Event_GetStringPtr(e));
 	}
 }
 
@@ -221,6 +221,7 @@ PX_Object* PX_Object_EditCreate(px_memorypool *mp, PX_Object *Parent,px_int x,px
 {
 	PX_Object *pObject;
 	PX_Object_Edit *pEdit=(PX_Object_Edit *)MP_Malloc(mp,sizeof(PX_Object_Edit));
+	PX_memset(pEdit, 0, sizeof(PX_Object_Edit));
 	if (pEdit==PX_NULL)
 	{
 		return PX_NULL;
@@ -245,7 +246,7 @@ PX_Object* PX_Object_EditCreate(px_memorypool *mp, PX_Object *Parent,px_int x,px
 		return PX_NULL;
 	}
 
-	pObject->pObject=pEdit;
+	pObject->pObjectDesc=pEdit;
 	pObject->Type=PX_OBJECT_TYPE_EDIT;
 	pObject->ReceiveEvents=PX_TRUE;
 	pObject->Func_ObjectFree=PX_Object_EditFree;
@@ -258,7 +259,7 @@ PX_Object* PX_Object_EditCreate(px_memorypool *mp, PX_Object *Parent,px_int x,px
 
 	pEdit->TextColor=PX_OBJECT_UI_DEFAULT_FONTCOLOR;
 
-	pEdit->CursorColor=PX_OBJECT_UI_DEFAULT_CURSORCOLOR;
+	pEdit->CursorColor=PX_COLOR_WHITE;
 	pEdit->BorderColor=PX_OBJECT_UI_DEFAULT_BORDERCOLOR;
 	pEdit->BackgroundColor=PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR;
 	pEdit->XOffset=0;
@@ -285,17 +286,17 @@ PX_Object* PX_Object_EditCreate(px_memorypool *mp, PX_Object *Parent,px_int x,px
 	return pObject;
 }
 
-PX_Object_Edit  * PX_Object_GetEdit( PX_Object *Object )
+PX_Object_Edit  * PX_Object_GetEdit( PX_Object *pObject )
 {
-	if(Object->Type==PX_OBJECT_TYPE_EDIT)
-		return (PX_Object_Edit *)Object->pObject;
+	if(pObject->Type==PX_OBJECT_TYPE_EDIT)
+		return (PX_Object_Edit *)pObject->pObjectDesc;
 	else
 		return PX_NULL;
 }
 
-px_char	  * PX_Object_EditGetText( PX_Object *Object )
+px_char	  * PX_Object_EditGetText( PX_Object *pObject )
 {
-	PX_Object_Edit *pEdit=PX_Object_GetEdit(Object);
+	PX_Object_Edit *pEdit=PX_Object_GetEdit(pObject);
 	if (pEdit!=PX_NULL)
 	{
 		return pEdit->text.buffer;
@@ -444,7 +445,7 @@ px_void PX_Object_EditSetBorder( PX_Object *pObj,px_bool Border )
 px_void PX_Object_EditUpdateCursorOnDown(PX_Object *pObject,px_int cx,px_int cy)
 {
 	px_int x_draw_oft=0,y_draw_oft=0,x=0,y=0,cursor=0,fsize=0;
-	PX_Object_Edit *pEdit=(PX_Object_Edit *)pObject->pObject;
+	PX_Object_Edit *pEdit=(PX_Object_Edit *)pObject->pObjectDesc;
 	const px_char *Text=pEdit->text.buffer;
 	px_float objx,objy,objWidth,objHeight;
 	px_float inheritX,inheritY;
@@ -476,7 +477,7 @@ px_void PX_Object_EditUpdateCursorOnDown(PX_Object *pObject,px_int cx,px_int cy)
 		{
 			px_dword code;
 			px_int width,height;
-			fsize=PX_FontModuleGetCharacterDesc(pEdit->fontModule,Text+cursor,&code,&width,&height);
+			fsize=PX_FontModuleGetOneCharacterDesc(pEdit->fontModule,Text+cursor,&code,&width,&height);
 			if (!fsize)
 			{
 				break;
@@ -563,7 +564,7 @@ px_void PX_Object_EditUpdateCursorOnDown(PX_Object *pObject,px_int cx,px_int cy)
 px_void PX_Object_EditRender(px_surface *psurface, PX_Object *pObject,px_uint elapsed)
 {
 	px_int x_draw_oft,y_draw_oft,x,y,cursor,fsize;
-	PX_Object_Edit *pEdit=(PX_Object_Edit *)pObject->pObject;
+	PX_Object_Edit *pEdit=(PX_Object_Edit *)pObject->pObjectDesc;
 	const px_char *Text=pEdit->text.buffer;
 	px_float objx,objy,objWidth,objHeight;
 	px_float inheritX,inheritY;
@@ -641,7 +642,7 @@ px_void PX_Object_EditRender(px_surface *psurface, PX_Object *pObject,px_uint el
 			{
 				if (pEdit->fontModule)
 				{
-					PX_GeoDrawRect(&pEdit->EditSurface,x_draw_oft+1,y_draw_oft,x_draw_oft,y_draw_oft+pEdit->fontModule->max_Height-2,pEdit->TextColor);
+					PX_GeoDrawRect(&pEdit->EditSurface,x_draw_oft+1,y_draw_oft,x_draw_oft,y_draw_oft+pEdit->fontModule->max_Height-1,pEdit->TextColor);
 				}
 				else
 				{
@@ -656,7 +657,7 @@ px_void PX_Object_EditRender(px_surface *psurface, PX_Object *pObject,px_uint el
 		{
 			px_dword code;
 			px_int width,height;
-			fsize=PX_FontModuleGetCharacterDesc(pEdit->fontModule,Text+cursor,&code,&width,&height);
+			fsize=PX_FontModuleGetOneCharacterDesc(pEdit->fontModule,Text+cursor,&code,&width,&height);
 			if (!fsize)
 			{
 				break;
@@ -787,6 +788,20 @@ px_void PX_Object_EditAddString(PX_Object *pObject,px_char *Text)
 						{
 							ch='\n';
 						}
+						if (pEdit->inputmode == PX_OBJECT_EDIT_INPUT_MODE_LOWERCASE)
+						{
+							if (ch>='A'&& ch <= 'Z')
+							{
+								ch += 'a' - 'A';
+							}
+						}
+						else if(pEdit->inputmode == PX_OBJECT_EDIT_INPUT_MODE_UPPERCASE)
+						{
+							if (ch >= 'a' && ch <= 'z')
+							{
+								ch += 'A' - 'a';
+							}
+						}
 						PX_StringInsertChar(&pEdit->text,pEdit->cursor_index,ch);
 						pEdit->cursor_index++;
 					}
@@ -797,6 +812,20 @@ px_void PX_Object_EditAddString(PX_Object *pObject,px_char *Text)
 					if (ch=='\r')
 					{
 						ch='\n';
+					}
+					if (pEdit->inputmode == PX_OBJECT_EDIT_INPUT_MODE_LOWERCASE)
+					{
+						if (ch >= 'A' && ch <= 'Z')
+						{
+							ch += 'a' - 'A';
+						}
+					}
+					else if (pEdit->inputmode == PX_OBJECT_EDIT_INPUT_MODE_UPPERCASE)
+					{
+						if (ch >= 'a' && ch <= 'z')
+						{
+							ch += 'A' - 'a';
+						}
 					}
 					PX_StringInsertChar(&pEdit->text,pEdit->cursor_index,ch);
 					pEdit->cursor_index++;
@@ -948,4 +977,93 @@ px_void PX_Object_EditSetOffset(PX_Object *pObject,px_int TopOffset,px_int LeftO
 		pEdit->VerticalOffset=TopOffset;
 		pEdit->HorizontalOffset=LeftOffset;
 	}
+}
+
+px_void PX_Object_EditSetXYOffset(PX_Object* pObject, px_int XOffset, px_int YOffset)
+{
+	PX_Object_Edit* pEdit = PX_Object_GetEdit(pObject);
+	if (pEdit != PX_NULL)
+	{
+		pEdit->XOffset = XOffset;
+		pEdit->YOffset = YOffset;
+	}
+}
+px_void PX_Object_EditSetInputMode(PX_Object* pObject, PX_OBJECT_EDIT_INPUT_MODE mode)
+{
+	PX_Object_Edit* pEdit = PX_Object_GetEdit(pObject);
+	if (pEdit != PX_NULL)
+	{
+		pEdit->inputmode = mode;
+	}
+}
+
+px_void PX_Object_EditSetMultiLines(PX_Object* pObject, px_bool b)
+{
+	PX_Object_Edit* pEdit = PX_Object_GetEdit(pObject);
+	if (pEdit != PX_NULL)
+	{
+		pEdit->multiLines = b;
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////
+//edit
+//////////////////////////////////////////////////////////////////////////
+PX_Object* PX_Designer_EditCreate(px_memorypool* mp, PX_Object* pparent, px_float x, px_float y, px_float width, px_float height, px_void* ptr)
+{
+	PX_FontModule* fm = (PX_FontModule*)ptr;
+	return PX_Object_EditCreate(mp, pparent, (px_int)x, (px_int)y, 128, 28, fm);
+}
+
+px_void PX_Designer_EditSetText(PX_Object* pobject, const px_char text[])
+{
+	PX_Object_EditSetText(pobject, text);
+}
+
+px_bool PX_Designer_EditGetText(PX_Object* pobject, px_string* str)
+{
+	return PX_StringSet(str, PX_Object_EditGetText(pobject));
+}
+
+PX_Designer_ObjectDesc PX_Object_EditDesignerInstall()
+{
+	PX_Designer_ObjectDesc edit;
+	px_int i = 0;
+	PX_memset(&edit, 0, sizeof(edit));
+	PX_strcat(edit.Name, "edit");
+
+	edit.createfunc = PX_Designer_EditCreate;
+	edit.type = PX_DESIGNER_OBJECT_TYPE_UI;
+
+	PX_strcat(edit.properties[i].Name, "id");
+	edit.properties[i].getstring = PX_Designer_GetID;
+	edit.properties[i].setstring = PX_Designer_SetID;
+	i++;
+
+	PX_strcat(edit.properties[i].Name, "x");
+	edit.properties[i].getfloat = PX_Designer_GetX;
+	edit.properties[i].setfloat = PX_Designer_SetX;
+	i++;
+
+	PX_strcat(edit.properties[i].Name, "y");
+	edit.properties[i].getfloat = PX_Designer_GetY;
+	edit.properties[i].setfloat = PX_Designer_SetY;
+	i++;
+
+	PX_strcat(edit.properties[i].Name, "width");
+	edit.properties[i].getfloat = PX_Designer_GetWidth;
+	edit.properties[i].setfloat = PX_Designer_SetWidth;
+	i++;
+
+	PX_strcat(edit.properties[i].Name, "height");
+	edit.properties[i].getfloat = PX_Designer_GetHeight;
+	edit.properties[i].setfloat = PX_Designer_SetHeight;
+	i++;
+
+	PX_strcat(edit.properties[i].Name, "text");
+	edit.properties[i].setstring = PX_Designer_EditSetText;
+	edit.properties[i].getstring = PX_Designer_EditGetText;
+	i++;
+	return edit;
+
 }

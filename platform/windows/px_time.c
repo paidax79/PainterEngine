@@ -15,14 +15,14 @@ int PX_TimeGetYear()
 	return 1900+p.tm_year;
 }
 
-int PX_TimeGetMouth()
+int PX_TimeGetMonth()
 {
 	time_t timep;
 	struct tm p;
 	time(&timep);
 	gmtime_s(&p, &timep);
 
-	return  p.tm_mon;
+	return  p.tm_mon+1;
 }
 
 int PX_TimeGetDay()
@@ -70,3 +70,7 @@ unsigned int PX_TimeGetTime()
 	return timeGetTime();
 }
 
+void PX_Sleep(unsigned int ms)
+{
+	Sleep(ms);
+}

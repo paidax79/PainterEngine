@@ -24,7 +24,7 @@ px_void PX_Object_SliderBarOnMouseLButtonDown(PX_Object *pObject,PX_Object_Event
 
 	if (pSliderBar)
 	{
-		Range=pSliderBar->Max-pSliderBar->Min+1;
+		Range=pSliderBar->Max-pSliderBar->Min;
 		relValue=pSliderBar->Value-pSliderBar->Min;
 
 		if(PX_ObjectIsPointInRegion(pObject,(px_float)x,(px_float)y))
@@ -92,6 +92,11 @@ px_void PX_Object_SliderBarOnMouseLButtonDown(PX_Object *pObject,PX_Object_Event
 							{
 								pSliderBar->Value=pSliderBar->Max;
 							}
+							if (pSliderBar->lastValue != pSliderBar->Value)
+							{
+								pSliderBar->lastValue = pSliderBar->Value;
+								PX_ObjectExecuteEvent(pObject, PX_OBJECT_BUILD_EVENT(PX_OBJECT_EVENT_VALUECHANGED));
+							}
 						}
 						else
 						{
@@ -99,6 +104,11 @@ px_void PX_Object_SliderBarOnMouseLButtonDown(PX_Object *pObject,PX_Object_Event
 							if (pSliderBar->Value<0)
 							{
 								pSliderBar->Value=0;
+							}
+							if (pSliderBar->lastValue != pSliderBar->Value)
+							{
+								pSliderBar->lastValue = pSliderBar->Value;
+								PX_ObjectExecuteEvent(pObject, PX_OBJECT_BUILD_EVENT(PX_OBJECT_EVENT_VALUECHANGED));
 							}
 						}
 
@@ -155,6 +165,11 @@ px_void PX_Object_SliderBarOnMouseLButtonDown(PX_Object *pObject,PX_Object_Event
 							{
 								pSliderBar->Value=pSliderBar->Max;
 							}
+							if (pSliderBar->lastValue != pSliderBar->Value)
+							{
+								pSliderBar->lastValue = pSliderBar->Value;
+								PX_ObjectExecuteEvent(pObject, PX_OBJECT_BUILD_EVENT(PX_OBJECT_EVENT_VALUECHANGED));
+							}
 						}
 						else
 						{
@@ -162,6 +177,11 @@ px_void PX_Object_SliderBarOnMouseLButtonDown(PX_Object *pObject,PX_Object_Event
 							if (pSliderBar->Value<pSliderBar->Min)
 							{
 								pSliderBar->Value=pSliderBar->Min;
+							}
+							if (pSliderBar->lastValue != pSliderBar->Value)
+							{
+								pSliderBar->lastValue = pSliderBar->Value;
+								PX_ObjectExecuteEvent(pObject, PX_OBJECT_BUILD_EVENT(PX_OBJECT_EVENT_VALUECHANGED));
 							}
 						}
 					}
@@ -267,37 +287,22 @@ px_void PX_Object_SliderBarOnCursorDrag(PX_Object *pObject,PX_Object_Event e,px_
 PX_Object * PX_Object_SliderBarCreate(px_memorypool *mp,PX_Object *Parent,px_int x,px_int y,px_int Width,px_int Height,PX_OBJECT_SLIDERBAR_TYPE Type,PX_OBJECT_SLIDERBAR_STYLE style)
 {
 	PX_Object *pObject;
-	PX_Object_SliderBar *pSliderbar=(PX_Object_SliderBar *)MP_Malloc(mp,sizeof(PX_Object_SliderBar));
-	if (pSliderbar==PX_NULL)
-	{
-		return PX_NULL;
-	}
-	pObject=PX_ObjectCreate(mp,Parent,(px_float)x,(px_float)y,0,(px_float)Width,(px_float)Height,0);
-	if (pObject==PX_NULL)
-	{
-		MP_Free(pObject->mp,pSliderbar);
-		return PX_NULL;
-	}
-
-	pObject->pObject=pSliderbar;
-	pObject->Enabled=PX_TRUE;
-	pObject->Visible=PX_TRUE;
-	pObject->Type=PX_OBJECT_TYPE_SLIDERBAR;
-	pObject->ReceiveEvents=PX_TRUE;
-	pObject->Func_ObjectFree=PX_Object_SliderBarFree;
-	pObject->Func_ObjectRender=PX_Object_SliderBarRender;
-	pSliderbar->Max=100;
-	pSliderbar->Value=0;
-	pSliderbar->SliderButtonLength=16;
-	pSliderbar->style=style;
-	pSliderbar->status=PX_OBJECT_SLIDERBAR_STATUS_NORMAL;
-	pSliderbar->Type=Type;
-	pSliderbar->color=PX_OBJECT_UI_DEFAULT_FONTCOLOR;
-	pSliderbar->BackgroundColor=PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR;
-	pSliderbar->btnDownX=0;
-	pSliderbar->btnDownY=0;
-	pSliderbar->DargButtonX=0;
-	pSliderbar->DargButtonY=0;
+	PX_Object_SliderBar Desc,*pDesc;
+	PX_memset(&Desc, 0, sizeof(PX_Object_SliderBar));
+	pObject=PX_ObjectCreateEx(mp,Parent,(px_float)x,(px_float)y,0,(px_float)Width,(px_float)Height,0, PX_OBJECT_TYPE_SLIDERBAR,0, PX_Object_SliderBarRender,0,&Desc,sizeof(Desc));
+	pDesc = PX_ObjectGetDesc(PX_Object_SliderBar, pObject);
+	pDesc->Max=100;
+	pDesc->Value=0;
+	pDesc->SliderButtonLength=16;
+	pDesc->style=style;
+	pDesc->status=PX_OBJECT_SLIDERBAR_STATUS_NORMAL;
+	pDesc->Type=Type;
+	pDesc->color=PX_OBJECT_UI_DEFAULT_FONTCOLOR;
+	pDesc->BackgroundColor=PX_OBJECT_UI_DEFAULT_BACKGROUNDCOLOR;
+	pDesc->btnDownX=0;
+	pDesc->btnDownY=0;
+	pDesc->DargButtonX=0;
+	pDesc->DargButtonY=0;
 
 	PX_ObjectRegisterEvent(pObject,PX_OBJECT_EVENT_CURSORDOWN,PX_Object_SliderBarOnMouseLButtonDown,PX_NULL);
 	PX_ObjectRegisterEvent(pObject,PX_OBJECT_EVENT_CURSORMOVE,PX_Object_SliderBarOnCursorNormal,PX_NULL);
@@ -306,10 +311,10 @@ PX_Object * PX_Object_SliderBarCreate(px_memorypool *mp,PX_Object *Parent,px_int
 	return pObject;
 }
 
-PX_Object_SliderBar * PX_Object_GetSliderBar( PX_Object *Object )
+PX_Object_SliderBar * PX_Object_GetSliderBar( PX_Object *pObject )
 {
-	if(Object->Type==PX_OBJECT_TYPE_SLIDERBAR)
-		return (PX_Object_SliderBar *)Object->pObject;
+	if(pObject->Type==PX_OBJECT_TYPE_SLIDERBAR)
+		return (PX_Object_SliderBar *)pObject->pObjectDesc;
 	else
 		return PX_NULL;
 }
@@ -372,7 +377,6 @@ px_int PX_Object_SliderBarGetValue( PX_Object *pSliderBar )
 px_void PX_Object_SliderBarRender(px_surface *psurface, PX_Object *pObject,px_uint elapsed)
 {
 	PX_Object_SliderBar *pSliderBar=PX_Object_GetSliderBar(pObject);
-	PX_Object_Event e;
 	px_int SliderBtnLen;
 	px_float Sx,Sy;
 	px_int Range;
@@ -415,10 +419,6 @@ px_void PX_Object_SliderBarRender(px_surface *psurface, PX_Object *pObject,px_ui
 		pSliderBar->Value=pSliderBar->Min;
 	}
 
-	if (pSliderBar->Value<0)
-	{
-		pSliderBar->Value=0;
-	}
 
 	//Clear
 	PX_SurfaceClear(
@@ -429,6 +429,9 @@ px_void PX_Object_SliderBarRender(px_surface *psurface, PX_Object *pObject,px_ui
 		(px_int)objy+(px_int)objHeight-1,
 		pSliderBar->BackgroundColor
 		);
+
+
+
 
 	switch(pSliderBar->status)
 	{
@@ -468,6 +471,14 @@ px_void PX_Object_SliderBarRender(px_surface *psurface, PX_Object *pObject,px_ui
 							);
 						//Draw Slider button
 						PX_GeoDrawRect(psurface,(px_int)Sx,(px_int)Sy,(px_int)(Sx+SliderBtnLen-1),(px_int)(Sy+objHeight-1),pSliderBar->color);
+
+						if (pSliderBar->showvalue )
+						{
+							px_char text[16] = { 0 };
+							PX_itoa(pSliderBar->Value, text,sizeof(text), 10);
+							PX_FontModuleDrawText(psurface, 0, (px_int)Sx+ SliderBtnLen/2, (px_int)Sy-1, PX_ALIGN_MIDBOTTOM, text, pSliderBar->showvalue_color);
+						}
+
 					}
 					break;
 				case PX_OBJECT_SLIDERBAR_STYLE_BOX:
@@ -479,6 +490,14 @@ px_void PX_Object_SliderBarRender(px_surface *psurface, PX_Object *pObject,px_ui
 						Sx+=SliderBtnLen/2;
 						//draw slider bar
 						PX_GeoDrawRect(psurface,(px_int)(objx+Sx-SliderBtnLen/2+2),(px_int)(objy+2),(px_int)(objx+Sx-SliderBtnLen/2+SliderBtnLen-3),(px_int)(objy+objHeight-3),pSliderBar->color);
+
+						if (pSliderBar->showvalue&&pSliderBar->status )
+						{
+							px_char text[16] = { 0 };
+							PX_itoa(pSliderBar->Value,text,sizeof(text),10);
+							PX_FontModuleDrawText(psurface, 0, (px_int)(objx + objWidth / 2), (px_int)(objy + objHeight / 2), PX_ALIGN_CENTER, text, pSliderBar->showvalue_color);
+						}
+
 					}
 					break;
 				}
@@ -549,6 +568,11 @@ px_void PX_Object_SliderBarRender(px_surface *psurface, PX_Object *pObject,px_ui
 						{
 							pSliderBar->Value=pSliderBar->Min;
 						}
+						if (pSliderBar->lastValue != pSliderBar->Value)
+						{
+							pSliderBar->lastValue = pSliderBar->Value;
+							PX_ObjectExecuteEvent(pObject, PX_OBJECT_BUILD_EVENT(PX_OBJECT_EVENT_VALUECHANGED));
+						}
 						//Draw Line
 						PX_GeoDrawRect(
 							psurface,
@@ -560,6 +584,13 @@ px_void PX_Object_SliderBarRender(px_surface *psurface, PX_Object *pObject,px_ui
 							);
 						//Draw Slider button
 						PX_GeoDrawRect(psurface,(px_int)(objx+Sx),(px_int)Sy,(px_int)(objx+Sx+SliderBtnLen-1),(px_int)(Sy+objHeight-1),pSliderBar->color);
+
+						if (pSliderBar->showvalue)
+						{
+							px_char text[16] = { 0 };
+							PX_itoa(pSliderBar->Value, text, sizeof(text), 10);
+							PX_FontModuleDrawText(psurface, 0, (px_int)Sx + SliderBtnLen / 2, (px_int)Sy - 1, PX_ALIGN_MIDBOTTOM, text, pSliderBar->showvalue_color);
+						}
 					}
 					break;
 				case PX_OBJECT_SLIDERBAR_STYLE_BOX:
@@ -578,9 +609,21 @@ px_void PX_Object_SliderBarRender(px_surface *psurface, PX_Object *pObject,px_ui
 						{
 							pSliderBar->Value=pSliderBar->Min;
 						}
+						if (pSliderBar->lastValue != pSliderBar->Value)
+						{
+							pSliderBar->lastValue = pSliderBar->Value;
+							PX_ObjectExecuteEvent(pObject, PX_OBJECT_BUILD_EVENT(PX_OBJECT_EVENT_VALUECHANGED));
+						}
 						Sx+=SliderBtnLen/2;
 						//draw slider bar
 						PX_GeoDrawRect(psurface,(px_int)(objx+Sx-SliderBtnLen/2+2),(px_int)objy+2,(px_int)(objx+Sx+SliderBtnLen/2-3),(px_int)(objy+objHeight-3),pSliderBar->color);
+
+						if (pSliderBar->showvalue)
+						{
+							px_char text[16] = { 0 };
+							PX_itoa(pSliderBar->Value, text, sizeof(text), 10);
+							PX_FontModuleDrawText(psurface, 0, (px_int)(objx + objWidth / 2), (px_int)(objy + objHeight / 2), PX_ALIGN_CENTER, text, pSliderBar->showvalue_color);
+						}
 					}
 					break;
 				}
@@ -603,7 +646,11 @@ px_void PX_Object_SliderBarRender(px_surface *psurface, PX_Object *pObject,px_ui
 						{
 							pSliderBar->Value=pSliderBar->Min;
 						}
-
+						if (pSliderBar->lastValue != pSliderBar->Value)
+						{
+							pSliderBar->lastValue = pSliderBar->Value;
+							PX_ObjectExecuteEvent(pObject, PX_OBJECT_BUILD_EVENT(PX_OBJECT_EVENT_VALUECHANGED));
+						}
 						Sy=pSliderBar->DargButtonY+objy;
 						Sx=objx;
 
@@ -636,7 +683,11 @@ px_void PX_Object_SliderBarRender(px_surface *psurface, PX_Object *pObject,px_ui
 						{
 							pSliderBar->Value=pSliderBar->Min;
 						}
-
+						if (pSliderBar->lastValue != pSliderBar->Value)
+						{
+							pSliderBar->lastValue = pSliderBar->Value;
+							PX_ObjectExecuteEvent(pObject, PX_OBJECT_BUILD_EVENT(PX_OBJECT_EVENT_VALUECHANGED));
+						}
 						Sy=pSliderBar->DargButtonY;
 						Sx=objx;
 						Sy+=SliderBtnLen/2;
@@ -649,29 +700,20 @@ px_void PX_Object_SliderBarRender(px_surface *psurface, PX_Object *pObject,px_ui
 
 			}
 
-			if (pSliderBar->lastValue!=pSliderBar->Value)
-			{
-				e.Event=PX_OBJECT_EVENT_VALUECHANGED;
-				e.Param_uint[0]=0;
-				e.Param_uint[1]=0;
-				e.Param_uint[2]=0;
-				e.Param_uint[3]=0;
-				pSliderBar->lastValue=pSliderBar->Value;
-				PX_ObjectExecuteEvent(pObject,e);
-			}
-
 		}
 		break;
 	}
+
+	
 
 	if (pSliderBar->Value>=pSliderBar->Max)
 	{
 		pSliderBar->Value=pSliderBar->Max;
 	}
 
-	if (pSliderBar->Value<0)
+	if (pSliderBar->Value< pSliderBar->Min)
 	{
-		pSliderBar->Value=0;
+		pSliderBar->Value= pSliderBar->Min;
 	}
 
 }
@@ -706,5 +748,154 @@ px_void PX_Object_SliderBarSetSliderButtonLength(PX_Object *pSliderBar,px_int le
 	{
 		SliderBar->SliderButtonLength=length;
 	}
+}
+
+px_void PX_Object_SliderBarSetShowValue(PX_Object* pSliderBar, px_bool b, px_color color)
+{
+	PX_Object_SliderBar* SliderBar = PX_Object_GetSliderBar(pSliderBar);
+	if (SliderBar != PX_NULL)
+	{
+		SliderBar->showvalue = b;
+		SliderBar->showvalue_color = color;
+	}
+}
+
+//////////////////////////////////////////////////////////////////////////
+//SliderBar
+//////////////////////////////////////////////////////////////////////////
+PX_Object* PX_Designer_SliderBarCreate(px_memorypool* mp, PX_Object* pparent, px_float x, px_float y, px_float width, px_float height, px_void* ptr)
+{
+	PX_FontModule* fm = (PX_FontModule*)ptr;
+	return PX_Object_SliderBarCreate(mp, pparent, (px_int)x, (px_int)y, 192, 32, PX_OBJECT_SLIDERBAR_TYPE_HORIZONTAL, PX_OBJECT_SLIDERBAR_STYLE_LINER);
+}
+
+px_void PX_Designer_SliderBarSetMax(PX_Object* pobject, px_int max)
+{
+	PX_Object_SliderBarSetRange(pobject, PX_ObjectGetDesc(PX_Object_SliderBar, pobject)->Min, max);
+}
+
+px_int PX_Designer_SliderBarGetMax(PX_Object* pobject)
+{
+	return PX_ObjectGetDesc(PX_Object_SliderBar, pobject)->Max;
+}
+
+px_void PX_Designer_SliderBarSetMin(PX_Object* pobject, px_int min)
+{
+	PX_Object_SliderBarSetRange(pobject, min, PX_ObjectGetDesc(PX_Object_SliderBar, pobject)->Max);
+}
+
+px_int PX_Designer_SliderBarGetMin(PX_Object* pobject)
+{
+	return PX_ObjectGetDesc(PX_Object_SliderBar, pobject)->Min;
+}
+
+px_void PX_Designer_SliderBarSetType(PX_Object* pobject, px_int type)
+{
+	switch (type)
+	{
+	case PX_OBJECT_SLIDERBAR_TYPE_HORIZONTAL:
+	case PX_OBJECT_SLIDERBAR_TYPE_VERTICAL:
+		PX_ObjectGetDesc(PX_Object_SliderBar, pobject)->Type = (PX_OBJECT_SLIDERBAR_TYPE)type;
+	default:
+		break;
+	}
+
+}
+px_int PX_Designer_SliderBarGetType(PX_Object* pobject)
+{
+	return (px_int)PX_ObjectGetDesc(PX_Object_SliderBar, pobject)->Type;
+}
+
+
+px_void PX_Designer_SliderBarSetStyle(PX_Object* pobject, px_int style)
+{
+	switch (style)
+	{
+	case PX_OBJECT_SLIDERBAR_STYLE_BOX:
+	case PX_OBJECT_SLIDERBAR_STYLE_LINER:
+		PX_ObjectGetDesc(PX_Object_SliderBar, pobject)->style = (PX_OBJECT_SLIDERBAR_STYLE)style;
+	default:
+		break;
+	}
+
+}
+px_int PX_Designer_SliderBarGetStyle(PX_Object* pobject)
+{
+	return (px_int)PX_ObjectGetDesc(PX_Object_SliderBar, pobject)->style;
+}
+
+px_void PX_Designer_SliderBarSetValue(PX_Object* pobject, px_int value)
+{
+	PX_Object_SliderBarSetValue(pobject, value);
+}
+
+px_int PX_Designer_SliderBarGetValue(PX_Object* pobject)
+{
+	return PX_Object_SliderBarGetValue(pobject);
+}
+
+
+PX_Designer_ObjectDesc PX_Object_SliderBarDesignerInstall()
+{
+	PX_Designer_ObjectDesc sliderbar;
+	px_int i = 0;
+	PX_memset(&sliderbar, 0, sizeof(sliderbar));
+	PX_strcat(sliderbar.Name, "sliderbar");
+
+	sliderbar.createfunc = PX_Designer_SliderBarCreate;
+	sliderbar.type = PX_DESIGNER_OBJECT_TYPE_UI;
+
+	PX_strcat(sliderbar.properties[i].Name, "id");
+	sliderbar.properties[i].getstring = PX_Designer_GetID;
+	sliderbar.properties[i].setstring = PX_Designer_SetID;
+	i++;
+
+	PX_strcat(sliderbar.properties[i].Name, "x");
+	sliderbar.properties[i].getfloat = PX_Designer_GetX;
+	sliderbar.properties[i].setfloat = PX_Designer_SetX;
+	i++;
+
+	PX_strcat(sliderbar.properties[i].Name, "y");
+	sliderbar.properties[i].getfloat = PX_Designer_GetY;
+	sliderbar.properties[i].setfloat = PX_Designer_SetY;
+	i++;
+
+	PX_strcat(sliderbar.properties[i].Name, "width");
+	sliderbar.properties[i].getfloat = PX_Designer_GetWidth;
+	sliderbar.properties[i].setfloat = PX_Designer_SetWidth;
+	i++;
+
+	PX_strcat(sliderbar.properties[i].Name, "height");
+	sliderbar.properties[i].getfloat = PX_Designer_GetHeight;
+	sliderbar.properties[i].setfloat = PX_Designer_SetHeight;
+	i++;
+
+	PX_strcat(sliderbar.properties[i].Name, "min");
+	sliderbar.properties[i].setint = PX_Designer_SliderBarSetMin;
+	sliderbar.properties[i].getint = PX_Designer_SliderBarGetMin;
+	i++;
+
+	PX_strcat(sliderbar.properties[i].Name, "max");
+	sliderbar.properties[i].setint = PX_Designer_SliderBarSetMax;
+	sliderbar.properties[i].getint = PX_Designer_SliderBarGetMax;
+	i++;
+
+
+	PX_strcat(sliderbar.properties[i].Name, "type");
+	sliderbar.properties[i].setint = PX_Designer_SliderBarSetType;
+	sliderbar.properties[i].getint = PX_Designer_SliderBarGetType;
+	i++;
+
+	PX_strcat(sliderbar.properties[i].Name, "style");
+	sliderbar.properties[i].setint = PX_Designer_SliderBarSetStyle;
+	sliderbar.properties[i].getint = PX_Designer_SliderBarGetStyle;
+	i++;
+
+	PX_strcat(sliderbar.properties[i].Name, "value");
+	sliderbar.properties[i].setint = PX_Designer_SliderBarSetValue;
+	sliderbar.properties[i].getint = PX_Designer_SliderBarGetValue;
+	i++;
+
+	return sliderbar;
 }
 

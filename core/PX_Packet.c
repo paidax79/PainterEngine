@@ -12,7 +12,7 @@ px_bool PX_PacketCompress(px_byte *_in,px_uint input_size,px_byte *_out,px_uint 
 		{
 		case PX_PACKET_ALOGRITHM_HUFFMAN:
 			{
-				PX_huffmanCompress(_in,input_size,_out,out_size);
+				//PX_HuffmanBuildTable(_in,input_size,_out,out_size);
 				*out_size+=sizeof(PX_Packet_Header);
 			}
 			break;
@@ -28,13 +28,13 @@ px_bool PX_PacketCompress(px_byte *_in,px_uint input_size,px_byte *_out,px_uint 
 
 	pHeader->algorithm=algorithm;
 	PX_memcpy(pHeader->magic,"PACK",4);
-	pHeader->CRC=PX_crc32(_in,input_size);
+	pHeader->_crc=PX_crc32(_in,input_size);
 
 	switch (algorithm)
 	{
 	case PX_PACKET_ALOGRITHM_HUFFMAN:
 		{
-			PX_huffmanCompress(_in,input_size,_out+sizeof(PX_Packet_Header),out_size);
+			//PX_HuffmanBuildTable(_in,input_size,_out+sizeof(PX_Packet_Header),out_size);
 			*out_size+=sizeof(PX_Packet_Header);
 		}
 		break;
@@ -59,7 +59,7 @@ px_bool PX_PacketDecompress(px_byte *_in,px_uint input_size,px_byte *_out,px_uin
 		{
 		case PX_PACKET_ALOGRITHM_HUFFMAN:
 			{
-				PX_huffmanDecompress(_in+sizeof(PX_Packet_Header),input_size-sizeof(PX_Packet_Header),_out,out_size);
+				//PX_huffmanDecompress(_in+sizeof(PX_Packet_Header),input_size-sizeof(PX_Packet_Header),_out,out_size);
 			}
 			break;
 		case PX_PACKET_ALOGRITHM_ARLE:
@@ -76,8 +76,8 @@ px_bool PX_PacketDecompress(px_byte *_in,px_uint input_size,px_byte *_out,px_uin
 	{
 	case PX_PACKET_ALOGRITHM_HUFFMAN:
 		{
-			PX_huffmanDecompress(_in+sizeof(PX_Packet_Header),input_size-sizeof(PX_Packet_Header),_out,out_size);
-			if (PX_crc32(_out,*out_size)!=pHeader->CRC)
+			//PX_huffmanDecompress(_in+sizeof(PX_Packet_Header),input_size-sizeof(PX_Packet_Header),_out,out_size);
+			if (PX_crc32(_out,*out_size)!=pHeader->_crc)
 			{
 				return PX_FALSE;
 			}
@@ -87,7 +87,7 @@ px_bool PX_PacketDecompress(px_byte *_in,px_uint input_size,px_byte *_out,px_uin
 	case PX_PACKET_ALOGRITHM_ARLE:
 		{
 			PX_ArleDecompress(_in+sizeof(PX_Packet_Header),input_size-sizeof(PX_Packet_Header),_out,out_size);
-			if (PX_crc32(_out,*out_size)!=pHeader->CRC)
+			if (PX_crc32(_out,*out_size)!=pHeader->_crc)
 			{
 				return PX_FALSE;
 			}

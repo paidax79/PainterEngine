@@ -30,68 +30,17 @@ px_bool PX_ResourceLibraryLoad(PX_ResourceLibrary *lib,PX_RESOURCE_TYPE type,px_
 		if(!PX_ShapeCreateFromMemory(lib->mp,data,datasize,&res.shape))
 			return PX_FALSE;
 		break;
-	case PX_RESOURCE_TYPE_SCRIPT:
-		/*
-		if (data[0]!='P'||data[1]!='A'||data[2]!='S'||data[3]!='M')
+	case PX_RESOURCE_TYPE_STRING:
+		if (!PX_StringInitialize(lib->mp, &res.stringdata))
+			return PX_FALSE;
+		if (!PX_StringCat(&res.stringdata, (const px_char *)data))
 		{
-			PX_SCRIPT_LIBRARY compilelib;
-			px_string asmcodeString;
-			px_memory bin;
-			MP_Reset(mptemp);
-			if(!PX_ScriptCompilerInit(&compilelib,mptemp))
-			{
-				return PX_FALSE;
-			}
-
-			if(!PX_ScriptCompilerLoad(&compilelib,(px_char *)data))
-			{
-				PX_ScriptCompilerFree(&compilelib);
-				return PX_FALSE;
-			}
-
-			PX_VectorInitialize(mptemp,&asmcodeString);
-
-
-			if(PX_ScriptCompilerCompile(&compilelib,"main",&asmcodeString,256))
-			{
-				PX_ScriptCompilerFree(&compilelib);
-
-				PX_ScriptAsmOptimization(&asmcodeString);
-				PX_MemoryInit(mptemp,&bin);
-				
-				if(!PX_ScriptAsmCompile(mptemp,asmcodeString.buffer,&bin))
-				{
-					PX_MemoryFree(&bin);
-					PX_StringFree(&asmcodeString);
-					PX_ScriptCompilerFree(&compilelib);
-					return PX_FALSE;
-				}
-
-				if(!PX_ScriptVM_InstanceInit(&res.Script,lib->mp,bin.buffer,bin.usedsize))
-					{
-						PX_MemoryFree(&bin);
-						PX_StringFree(&asmcodeString);
-						PX_ScriptCompilerFree(&compilelib);
-						return PX_FALSE;
-					}
-
-				PX_MemoryFree(&bin);
-			}
-			else
-			{
-				PX_StringFree(&asmcodeString);
-				PX_ScriptCompilerFree(&compilelib);
-				MP_Reset(mptemp);
-				return PX_FALSE;
-			}
-
-			PX_StringFree(&asmcodeString);
-			
-			MP_Reset(mptemp);
+			PX_StringFree(&res.stringdata);
+			return PX_FALSE;
 		}
-		else
-		*/
-		if(!PX_ScriptVM_InstanceInitialize(&res.Script,lib->mp,data,datasize))
+		break;
+	case PX_RESOURCE_TYPE_SCRIPT:
+		if(!PX_VMInitialize(&res.Script,lib->mp,data,datasize))
 			return PX_FALSE;
 		break;
 	case PX_RESOURCE_TYPE_ANIMATIONLIBRARY:
@@ -156,8 +105,19 @@ px_bool PX_ResourceLibraryLoad(PX_ResourceLibrary *lib,PX_RESOURCE_TYPE type,px_
 		break;
 	}
 	
-	PX_MapPut(&lib->map,key,PX_ListPush(&lib->resources,&res,sizeof(res)));
+	PX_MapPut(&lib->map,(const px_byte *)key,PX_strlen(key), PX_ListPush(&lib->resources, &res, sizeof(res)));
 	return PX_TRUE;
+}
+
+px_bool PX_ResourceLibraryAdd(PX_ResourceLibrary* lib, PX_Resource res,const px_char key[])
+{
+	if (PX_MapGet(&lib->map, (const px_byte *)key, PX_strlen(key))==PX_NULL)
+	{
+		if (PX_MapPut(&lib->map, (const px_byte *)key, PX_strlen(key), PX_ListPush(&lib->resources, &res, sizeof(res))) == PX_HASHMAP_RETURN_OK)
+			return PX_TRUE;
+	}
+	
+	return PX_FALSE;
 }
 
 px_void PX_ResourceLibraryFree(PX_ResourceLibrary *lib)
@@ -171,11 +131,14 @@ px_void PX_ResourceLibraryFree(PX_ResourceLibrary *lib)
 		{
 		case PX_RESOURCE_TYPE_NULL:
 			break;
+		case PX_RESOURCE_TYPE_STRING:
+			PX_StringFree(&pres->stringdata);
+			break;
 		case PX_RESOURCE_TYPE_TEXTURE:
 			PX_TextureFree(&pres->texture);
 			break;
 		case PX_RESOURCE_TYPE_SCRIPT:
-			PX_ScriptVM_InstanceFree(&pres->Script);
+			PX_VMFree(&pres->Script);
 			break;
 		case PX_RESOURCE_TYPE_ANIMATIONLIBRARY:
 			PX_AnimationLibraryFree(&pres->animationlibrary);
@@ -184,7 +147,7 @@ px_void PX_ResourceLibraryFree(PX_ResourceLibrary *lib)
 			PX_MemoryFree(&pres->data);
 			break;
 			case PX_RESOURCE_TYPE_SOUND:
-				PX_SoundStaticDataFree(&pres->sound);
+				PX_SoundDataFree(&pres->sound);
 				break;
 			case PX_RESOURCE_TYPE_SHAPE:
 				PX_ShapeFree(&pres->shape);
@@ -199,7 +162,7 @@ px_void PX_ResourceLibraryFree(PX_ResourceLibrary *lib)
 
 PX_Resource *  PX_ResourceLibraryGet(PX_ResourceLibrary *lib,const px_char key[])
 {
-	return (PX_Resource *)PX_MapGet(&lib->map,key);
+	return (PX_Resource *)PX_MapGet(&lib->map,(const px_byte *)key, PX_strlen(key));
 }
 
 px_bool PX_ResourceLibraryAddTexture(PX_ResourceLibrary *lib,const px_char key[],px_texture *pTexture)
@@ -207,15 +170,27 @@ px_bool PX_ResourceLibraryAddTexture(PX_ResourceLibrary *lib,const px_char key[]
 	PX_Resource res;
 	res.Type=PX_RESOURCE_TYPE_TEXTURE;
 	if(!PX_TextureCopy(lib->mp,pTexture,&res.texture))return PX_FALSE;
-	PX_MapPut(&lib->map,key,PX_ListPush(&lib->resources,&res,sizeof(res)));
+	PX_MapPut(&lib->map,(const px_byte *)key, PX_strlen(key),PX_ListPush(&lib->resources,&res,sizeof(res)));
 	return PX_TRUE;
 }
+
+px_texture *PX_ResourceLibraryCreateTexture(PX_ResourceLibrary* lib, const px_char key[], px_int width,px_int height)
+{
+	PX_Resource res;
+	res.Type = PX_RESOURCE_TYPE_TEXTURE;
+	if (!PX_TextureCreate(lib->mp, &res.texture,width, height))return PX_NULL;
+	if(PX_MapPut(&lib->map, (const px_byte*)key, PX_strlen(key), PX_ListPush(&lib->resources, &res, sizeof(res)))!=PX_HASHMAP_RETURN_OK) 
+		return 0;
+	return PX_ResourceLibraryGetTexture(lib,key);
+}
+
+
 
 px_void PX_ResourceLibraryDelete(PX_ResourceLibrary *lib,const px_char key[])
 {
 	PX_Resource * pres,*pnodeRes;
 
-	pres=(PX_Resource *)PX_MapGet(&lib->map,key);
+	pres=(PX_Resource *)PX_MapGet(&lib->map,(const px_byte *)key, PX_strlen(key));
 	if (pres)
 	{
 		px_list_node *pNode=lib->resources.head;
@@ -228,11 +203,14 @@ px_void PX_ResourceLibraryDelete(PX_ResourceLibrary *lib,const px_char key[])
 				{
 				case PX_RESOURCE_TYPE_NULL:
 					break;
+				case PX_RESOURCE_TYPE_STRING:
+					PX_StringFree(&pres->stringdata);
+					break;
 				case PX_RESOURCE_TYPE_TEXTURE:
 					PX_TextureFree(&pres->texture);
 					break;
 				case PX_RESOURCE_TYPE_SCRIPT:
-					PX_ScriptVM_InstanceFree(&pres->Script);
+					PX_VMFree(&pres->Script);
 					break;
 				case PX_RESOURCE_TYPE_ANIMATIONLIBRARY:
 					PX_AnimationLibraryFree(&pres->animationlibrary);
@@ -241,14 +219,14 @@ px_void PX_ResourceLibraryDelete(PX_ResourceLibrary *lib,const px_char key[])
 					PX_MemoryFree(&pres->data);
 					break;
 					case PX_RESOURCE_TYPE_SOUND:
-						PX_SoundStaticDataFree(&pres->sound);
+						PX_SoundDataFree(&pres->sound);
 						break;
                     case PX_RESOURCE_TYPE_SHAPE:
                         PX_ShapeFree(&pres->shape);
                         break;
 				}
 				PX_ListPop(&lib->resources,pNode);
-				PX_MapErase(&lib->map,key);
+				PX_MapErase(&lib->map,(const px_byte *)key, PX_strlen(key));
 				return;
 			}
 			pNode=pNode->pnext;
@@ -276,6 +254,16 @@ px_shape * PX_ResourceLibraryGetShape(PX_ResourceLibrary *lib,const px_char key[
 	return PX_NULL;
 }
 
+px_string* PX_ResourceLibraryGetString(PX_ResourceLibrary* lib, const px_char key[])
+{
+	PX_Resource* pres = PX_ResourceLibraryGet(lib, key);
+	if (pres && pres->Type == PX_RESOURCE_TYPE_STRING)
+	{
+		return &pres->stringdata;
+	}
+	return PX_NULL;
+}
+
 PX_AnimationLibrary * PX_ResourceLibraryGetAnimationLibrary(PX_ResourceLibrary *lib,const px_char key[])
 {
 	PX_Resource *pres=PX_ResourceLibraryGet(lib,key);
@@ -286,7 +274,7 @@ PX_AnimationLibrary * PX_ResourceLibraryGetAnimationLibrary(PX_ResourceLibrary *
 	return PX_NULL;
 }
 
-PX_ScriptVM_Instance * PX_ResourceLibraryGetScript(PX_ResourceLibrary *lib,const px_char key[])
+PX_VM * PX_ResourceLibraryGetScript(PX_ResourceLibrary *lib,const px_char key[])
 {
 	PX_Resource *pres=PX_ResourceLibraryGet(lib,key);
 	if (pres&&pres->Type==PX_RESOURCE_TYPE_SCRIPT)

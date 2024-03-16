@@ -3,7 +3,7 @@ static PX_Object_Menu *PX_Object_GetMenu(PX_Object *pMenuObject)
 {
 	if (pMenuObject->Type==PX_OBJECT_TYPE_MENU)
 	{
-		return (PX_Object_Menu *)pMenuObject->pObject;
+		return (PX_Object_Menu *)pMenuObject->pObjectDesc;
 	}
 	return PX_NULL;
 }
@@ -103,7 +103,7 @@ static px_void PX_MenuSubMenuUpdate(px_int x,px_int y,PX_Object_Menu *pMenu)
 		PX_MenuSubMenuUpdateEx(pMenu,pSubItem,pSubItem->x,pSubItem->y+pSubItem->height);
 	}
 }
-static px_bool PX_Object_MenuInitialize(px_memorypool *mp,PX_Object_Menu *pMenu,px_int x,int y,px_int width,PX_FontModule *fontmodule)
+static px_bool PX_Object_MenuInitialize(px_memorypool *mp,PX_Object_Menu *pMenu,px_int x,px_int y,px_int width,PX_FontModule *fontmodule)
 {
 	PX_memset(pMenu,0,sizeof(PX_Object_Menu));
 	pMenu->fontmodule=fontmodule;
@@ -244,10 +244,20 @@ px_void PX_MenuPostEvent_OnCursorDown(PX_Object *pObject,PX_Object_Event e)
 			PX_Object_Menu_Item *pSubItem=PX_LIST_NODETDATA(PX_Object_Menu_Item,pNode);
 			if (PX_isXYInRegion(x,y,(px_float)pSubItem->x,(px_float)pSubItem->y,(px_float)pSubItem->width,(px_float)pSubItem->height)&&pSubItem->enable)
 			{
-				pMenu->activating=PX_TRUE;
-				PX_ObjectSetFocus(pObject);
-				pSubItem->Activated=PX_TRUE;
-				PX_MenuClearChild(pMenu,pSubItem);
+				if (pSubItem->Items.size)
+				{
+					pMenu->activating = PX_TRUE;
+					PX_ObjectSetFocus(pObject);
+					pSubItem->Activated = PX_TRUE;
+					PX_MenuClearChild(pMenu, pSubItem);
+				}
+				else
+				{
+					if (pSubItem->func_callback)
+					{
+						pSubItem->func_callback(pSubItem->user_ptr);
+					}
+				}
 				return;
 			}
 		}
@@ -375,6 +385,10 @@ PX_Object_Menu_Item * PX_Object_MenuAddItem(PX_Object *pObject,PX_Object_Menu_It
 	PX_Object_Menu *pMenu=PX_Object_GetMenu(pObject);
 	px_float objx,objy,objWidth,objHeight;
 	px_float inheritX,inheritY;
+	if (parent==PX_NULL)
+	{
+		parent = PX_Object_MenuGetRootItem(pObject);
+	}
 
 	PX_ObjectGetInheritXY(pObject,&inheritX,&inheritY);
 
@@ -398,14 +412,14 @@ PX_Object_Menu_Item * PX_Object_MenuAddItem(PX_Object *pObject,PX_Object_Menu_It
 	return ret;
 }
 
-px_void PX_Object_MenuFree(PX_Object *Obj)
+px_void PX_Object_MenuFree(PX_Object *pObject)
 {
-	PX_Object_MenuFreeEx(PX_Object_GetMenu(Obj));
+	PX_Object_MenuFreeEx(PX_Object_GetMenu(pObject));
 }
 
-px_void PX_Object_MenuRender(px_surface *psurface, PX_Object *Obj,px_uint elapsed)
+px_void PX_Object_MenuRender(px_surface *psurface, PX_Object *pObject,px_uint elapsed)
 {
-	PX_Object_MenuRenderEx(psurface,PX_Object_GetMenu(Obj),elapsed);
+	PX_Object_MenuRenderEx(psurface,PX_Object_GetMenu(pObject),elapsed);
 }
 
 px_void PX_Object_MenuOnCursorEvent(PX_Object *pObject,PX_Object_Event e,px_void *ptr)
@@ -413,7 +427,7 @@ px_void PX_Object_MenuOnCursorEvent(PX_Object *pObject,PX_Object_Event e,px_void
 	PX_Object_MenuOnCursorEventEx(pObject,e);
 }
 
-PX_Object * PX_Object_MenuCreate(px_memorypool *mp,PX_Object *Parent,px_int x,int y,px_int width,PX_FontModule *fontmodule)
+PX_Object * PX_Object_MenuCreate(px_memorypool *mp,PX_Object *Parent,px_int x,px_int y,px_int width,PX_FontModule *fontmodule)
 {
 	PX_Object *pObject;
 	PX_Object_Menu *pMenu=(PX_Object_Menu *)MP_Malloc(mp,sizeof(PX_Object_Menu));
@@ -437,7 +451,7 @@ PX_Object * PX_Object_MenuCreate(px_memorypool *mp,PX_Object *Parent,px_int x,in
 	}
 
 
-	pObject->pObject=pMenu;
+	pObject->pObjectDesc=pMenu;
 	pObject->Enabled=PX_TRUE;
 	pObject->Visible=PX_TRUE;
 	pObject->Type=PX_OBJECT_TYPE_MENU;
