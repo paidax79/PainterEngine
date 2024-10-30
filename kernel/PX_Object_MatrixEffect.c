@@ -421,7 +421,7 @@ px_void PX_Object_MatrixEffectFreeEx(PX_Object_MatrixEffect *effect)
 
 PX_OBJECT_RENDER_FUNCTION(PX_Object_MatrixEffectRender)
 {
-	PX_Object_MatrixEffect *effect=(PX_Object_MatrixEffect *)pObject->pObjectDesc;
+	PX_Object_MatrixEffect *effect=PX_ObjectGetDesc(PX_Object_MatrixEffect,pObject);
 	PX_Object_MatrixEffectUpdateEx(effect,elapsed);
 	PX_Object_MatrixEffectRenderEx(effect,psurface);
 	if (effect->Done)
@@ -432,7 +432,7 @@ PX_OBJECT_RENDER_FUNCTION(PX_Object_MatrixEffectRender)
 
 PX_OBJECT_FREE_FUNCTION(PX_Object_MatrixEffectFree)
 {
-	PX_Object_MatrixEffect* effect = (PX_Object_MatrixEffect*)pObject->pObjectDesc;
+	PX_Object_MatrixEffect* effect = PX_ObjectGetDesc(PX_Object_MatrixEffect, pObject);
 	PX_Object_MatrixEffectFreeEx(effect);
 }
 
@@ -443,7 +443,7 @@ px_bool PX_Object_MatrixEffectCreate(px_memorypool* mp, PX_Object* parent, px_su
 	PX_Object* pObject;
 
 	pObject=PX_ObjectCreateEx(mp, parent, 0, 0, 0, pMapsurface->width*1.0f, pMapsurface->height*1.0f, 0, PX_OBJECT_TYPE_MATRIXEFFECT, 0, PX_Object_MatrixEffectRender, PX_NULL, PX_NULL, sizeof(PX_Object_MatrixEffect));
-	pDesc=PX_ObjectGetDesc(PX_Object_MatrixEffect, pObject);
+	pDesc=PX_ObjectGetDescIndex(PX_Object_MatrixEffect, pObject,0);
 
 	pDesc->mp = mp;
 

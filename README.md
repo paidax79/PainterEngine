@@ -1,10 +1,10 @@
 <p align="center"><a href="https://painterengine.com" target="_blank" rel="noopener noreferrer"><img src="images/title.png" alt="PainterEngine Title"></a></p>
 
 PainterEngine是一个由C语言编写的跨平台图形引擎,支持windows/linux/ios/android/webassembly甚至无操作系统的裸嵌入式平台,它基于组件化的设计模式,即使是C语言初学者,也可以在几分钟内掌握它的使用,[PainterEngine Make](https://www.painterengine.com/)允许您一键将您的PainterEngine项目编译到多个平台.
-它涵盖了基础数据结构、图形学、声学、数字信号处理、编译原理、虚拟机系统、密码学、人机交互、游戏引擎等多个领域，你既可以用它制作微应用，也可以将它作为学习项目。
+它涵盖了基础数据结构、图形学、声学、数字信号处理、编译原理、虚拟机系统、密码学、人机交互、游戏引擎、FPGA-GPU图形IP设计等多个领域，你既可以用它制作微应用，也可以将它作为学习项目。
 
 PainterEngine is a cross-platform graphics engine written in C language, with support for Windows, Linux, iOS, Android, WebAssembly, and even bare-metal embedded platforms without OS. It is built on a component-based design pattern, making it accessible to even C language beginners . [PainterEngine Make](https://www.painterengine.com/) enables you to compile your PainterEngine project for multiple platforms with just one click.
-It covers various fields including basic data structures, graphics, acoustics, digital signal processing, compiler design, virtual machine systems, cryptography, human-computer interaction, game engines, and more. You can use it to create mini-applications or as a learning project for acquiring knowledge.
+It covers various fields including basic data structures, graphics, acoustics, digital signal processing, compiler design, virtual machine systems, cryptography, human-computer interaction, game engines,FPGA-GPU graphics acceleration， and more. You can use it to create mini-applications or as a learning project for acquiring knowledge.
 
 ## 30秒快速入门PainterEngine
 
@@ -100,10 +100,11 @@ You can now use your IDE to compile PainterEngine with these steps. PainterEngin
 | 渲染器                | 2D/3D                                                        | 2D 3D渲染器实现及一个高质量制图引擎                                                 |
 | 动画                  | 2dx/live2D                                                   | 2D 动画和一个类Live2D 骨骼动画系统                                                  |
 | 声学模型               | mixer/piano/ks                                               | 包含一个混音器实现,一个相位声码器,一个物理建模的钢琴及karplus-strong合成的拨弦模型,直接合成PCM音频流   |
-| 脚本引擎               | Compiler/VM/Debugger                                         | A一个完整的脚本引擎,包含编译器虚拟机调试器                                           |
+| 脚本引擎               | Compiler/VM/Debugger                                         | 一个完整的脚本引擎,包含编译器虚拟机调试器                                           |
 | UI框架                 | button/radio/image/edit/label/list....                       | UI框架实现                                                                        |
 | 协议                   | MQTT/MODBUS/Game-network-synchronization                     | 常用的通讯协议                                                                    |
 | 游戏引擎               |                                                              | 集成一个游戏世界框架                                                               |
+| FPGA-GPU               |2D accelerator                                               | 实现了基于FPGA的GPU图形加速器,能够为PainterEngine提供不低于50Mpps的2D Blender及图元光栅化加速,支持HDMI输出,目前已在zynq7000系列Soc上完成验证|
 
 还有更多探索...
 
@@ -129,8 +130,22 @@ You can now use your IDE to compile PainterEngine with these steps. PainterEngin
 | UI                    | button/radio/image/edit/label/list....                       | Implementation of common UI controls.                                             |
 | protocals             | MQTT/MODBUS/Game-network-synchronization                     | Common communication protocols.                                                   |
 | Game framework.       |                                                              | PainterEngine Game Framework                                                      |
+| FPGA-GPU               |2D accelerator                                               | Implemented an FPGA-based GPU graphics accelerator that provides at least 50 million pixels per second (Mpps) 2D Blender acceleration for PainterEngine and supports HDMI output.validation has been completed on the Zynq-7000 series SoC.|
 
 Many more to explore....
+## FPGA-GPU 嵌入式图形加速方案
+
+## The FPGA-GPU Graphics Acceleration Solution
+
+提供一个基于FPGA的GPU IP核,已在Zynq7020上完成功能验证,提供不低于50Mpps的2D Blender图形渲染加速,支持HDMI输出,目前已在zynq7000系列Soc上完成验证
+
+A GPU IP core based on FPGA has been developed and functionally verified on the Zynq 7020 platform. It provides 2D Blender graphics rendering acceleration with a performance of no less than 50Mpps (Million pixels per second) and supports HDMI output. This solution has been successfully validated on the Zynq 7000 series SoC.
+
+<p align="center"><img src="images/gpu_block_design.png" alt="PainterEngine designer"></p>
+
+<p align="center"><img src="images/gpu_demo.png" alt="PainterEngine designer"></p>
+
+<p align="center"><img src="images/gpu_demo2.png" alt="PainterEngine designer"></p>
 
 ## 组件化开发,支持设计器模式,简单的不能再简单
 
@@ -151,5 +166,41 @@ Many more to explore....
 <p align="center"><img width="600" src="images/l2d.png" alt="PainterEngine market"></p>
 
 ### 现在,访问PainterEngine.com,参与建设
-
 ### Now, join the PainterEngine.com contribute to its development.
+<p align="center">
+<img src="platform/fox/mini/1.png" alt="logo">
+<img src="platform/fox/mini/2.png" alt="logo">
+<img src="platform/fox/mini/3.png" alt="logo">
+<img src="platform/fox/mini/4.png" alt="logo">
+<img src="platform/fox/mini/5.png" alt="logo">
+<img src="platform/fox/mini/6.png" alt="logo">
+</p>
+
+<p align="center">
+<img src="platform/fox/mini/7.png" alt="logo">
+<img src="platform/fox/mini/8.png" alt="logo">
+<img src="platform/fox/mini/9.png" alt="logo">
+<img src="platform/fox/mini/10.png" alt="logo">
+<img src="platform/fox/mini/11.png" alt="logo">
+<img src="platform/fox/mini/12.png" alt="logo">
+</p>
+
+<p align="center">
+<img src="platform/fox/mini/13.png" alt="logo">
+<img src="platform/fox/mini/14.png" alt="logo">
+<img src="platform/fox/mini/15.png" alt="logo">
+<img src="platform/fox/mini/16.png" alt="logo">
+<img src="platform/fox/mini/17.png" alt="logo">
+<img src="platform/fox/mini/18.png" alt="logo">
+</p>
+
+<p align="center">
+<img src="platform/fox/mini/19.png" alt="logo">
+<img src="platform/fox/mini/20.png" alt="logo">
+<img src="platform/fox/mini/21.png" alt="logo">
+<img src="platform/fox/mini/22.png" alt="logo">
+<img src="platform/fox/mini/23.png" alt="logo">
+<img src="platform/fox/mini/24.png" alt="logo">
+</p>
+
+

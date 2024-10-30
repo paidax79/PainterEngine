@@ -1,5 +1,15 @@
 #include "PX_Texture.h"
 
+PX_TEXTURERENDER_BLEND PX_TEXTURERENDER_BLEND_BUILD(px_float hdr_R, px_float hdr_G, px_float hdr_B, px_float alpha)
+{
+	PX_TEXTURERENDER_BLEND blend;
+	blend.alpha = alpha;
+	blend.hdr_R = hdr_R;
+	blend.hdr_G = hdr_G;
+	blend.hdr_B = hdr_B;
+	return blend;
+}
+
 px_bool PX_TextureCreate(px_memorypool *mp,px_texture *tex,px_int width,px_int height)
 {
 	return PX_SurfaceCreate(mp,width,height,tex);
@@ -91,7 +101,9 @@ px_void PX_TextureRenderClipMirror(px_surface* psurface, px_texture* tex, px_int
 	px_color clr;
 
 	PX_ASSERTIF(tex == PX_NULL);
-
+	PX_ASSERTIF(psurface == PX_NULL);
+	PX_ASSERTIF(y - cliph / 2 > y);//y overflow
+	PX_ASSERTIF(x - clipw / 2 > x);//x overflow
 	switch (refPoint)
 	{
 	case PX_ALIGN_LEFTTOP:
@@ -274,35 +286,77 @@ px_void PX_TextureRenderClipMirror(px_surface* psurface, px_texture* tex, px_int
 		return;
 	}
 
+	if (cliph <= 0 || clipw <= 0)
+		return;
 
 	if (blend)
 	{
-		px_int Ab = (px_int)(blend->alpha * 1000);
-		px_int Rb = (px_int)(blend->hdr_R * 1000);
-		px_int Gb = (px_int)(blend->hdr_G * 1000);
-		px_int Bb = (px_int)(blend->hdr_B * 1000);
+		px_int Ab = (px_int)(blend->alpha * 128);
+		px_int Rb = (px_int)(blend->hdr_R * 128);
+		px_int Gb = (px_int)(blend->hdr_G * 128);
+		px_int Bb = (px_int)(blend->hdr_B * 128);
 
 		switch (mirrorMode)
 		{
 		case PX_TEXTURERENDER_MIRRROR_MODE_NONE:
-			for (j = 0; j < cliph; j++)
+		{
+
+
+#ifdef PX_GPU_ENABLE
+			if (PX_GPU_isEnable()&& clipw>=32)
 			{
-				for (i = 0; i < clipw; i++)
+				px_dword blend;
+				Ab &= 0xff;
+				Rb &= 0xff;
+				Gb &= 0xff;
+				Bb &= 0xff;
+				blend = (Ab << 24) + (Rb << 16) + (Gb << 8) + Bb;
+				
+				PX_GPU_Render(pdata + clipy * tex->width + clipx, tex->width, clipw, cliph, psurface->surfaceBuffer + y * psurface->width + x, psurface->width, PX_COLOR_FORMAT, blend);
+			}
+			else
+			{
+				for (j = 0; j < cliph; j++)
 				{
-					clr = pdata[(clipy + j) * tex->width + (clipx + i)];
-					bA = (px_int)(clr._argb.a * Ab / 1000);
-					bR = (px_int)(clr._argb.r * Rb / 1000);
-					bG = (px_int)(clr._argb.g * Gb / 1000);
-					bB = (px_int)(clr._argb.b * Bb / 1000);
+					for (i = 0; i < clipw; i++)
+					{
+						clr = pdata[(clipy + j) * tex->width + (clipx + i)];
+						bA = (px_int)(clr._argb.a * Ab) >> 7;
+						bR = (px_int)(clr._argb.r * Rb) >> 7;
+						bG = (px_int)(clr._argb.g * Gb) >> 7;
+						bB = (px_int)(clr._argb.b * Bb) >> 7;
 
-					clr._argb.a = (px_uchar)bA;
-					clr._argb.r = (px_uchar)bR;
-					clr._argb.g = (px_uchar)bG;
-					clr._argb.b = (px_uchar)bB;
+						clr._argb.a = (px_uchar)bA;
+						clr._argb.r = (px_uchar)bR;
+						clr._argb.g = (px_uchar)bG;
+						clr._argb.b = (px_uchar)bB;
 
-					PX_SurfaceDrawPixelWithoutLimit(psurface, x + i, y + j, clr);
+						PX_SurfaceDrawPixelWithoutLimit(psurface, x + i, y + j, clr);
+					}
 				}
 			}
+			
+#else
+		for (j = 0; j < cliph; j++)
+		{
+			for (i = 0; i < clipw; i++)
+			{
+				clr = pdata[(clipy + j) * tex->width + (clipx + i)];
+				bA = (px_int)(clr._argb.a * Ab) >> 7;
+				bR = (px_int)(clr._argb.r * Rb) >> 7;
+				bG = (px_int)(clr._argb.g * Gb) >> 7;
+				bB = (px_int)(clr._argb.b * Bb) >> 7;
+
+				clr._argb.a = (px_uchar)bA;
+				clr._argb.r = (px_uchar)bR;
+				clr._argb.g = (px_uchar)bG;
+				clr._argb.b = (px_uchar)bB;
+
+				PX_SurfaceDrawPixelWithoutLimit(psurface, x + i, y + j, clr);
+			}
+		}
+#endif
+		}
 			break;
 		case PX_TEXTURERENDER_MIRRROR_MODE_H:
 			for (j = 0; j < cliph; j++)
@@ -372,6 +426,24 @@ px_void PX_TextureRenderClipMirror(px_surface* psurface, px_texture* tex, px_int
 		switch (mirrorMode)
 		{
 		case PX_TEXTURERENDER_MIRRROR_MODE_NONE:
+			{
+#ifdef PX_GPU_ENABLE
+			if (PX_GPU_isEnable())
+			{
+				PX_GPU_Render(pdata + clipy * tex->width + clipx, tex->width, clipw, cliph, psurface->surfaceBuffer + y * psurface->width + x, psurface->width, PX_COLOR_FORMAT, 0x80808080);
+			}
+			else
+			{
+				for (j = 0; j < cliph; j++)
+				{
+					for (i = 0; i < clipw; i++)
+					{
+						clr = pdata[(clipy + j) * tex->width + (clipx + i)];
+						PX_SurfaceDrawPixelWithoutLimit(psurface, x + i, y + j, clr);
+					}
+				}
+			}
+#else
 			for (j = 0; j < cliph; j++)
 			{
 				for (i = 0; i < clipw; i++)
@@ -379,6 +451,8 @@ px_void PX_TextureRenderClipMirror(px_surface* psurface, px_texture* tex, px_int
 					clr = pdata[(clipy + j) * tex->width + (clipx + i)];
 					PX_SurfaceDrawPixelWithoutLimit(psurface, x + i, y + j, clr);
 				}
+			}
+#endif
 			}
 			break;
 		case PX_TEXTURERENDER_MIRRROR_MODE_H:
@@ -932,15 +1006,15 @@ px_void PX_TextureRenderRotation_sincos(px_surface *psurface,px_texture *tex,px_
 			{
 				px_int bA,bR,bG,bB;
 				px_color clr=PX_COLOR((px_uchar)mixa,(px_uchar)mixr,(px_uchar)mixg,(px_uchar)mixb);
-				px_int Ab=(px_int)(blend->alpha*1000);
-				px_int Rb=(px_int)(blend->hdr_R*1000);
-				px_int Gb=(px_int)(blend->hdr_G*1000);
-				px_int Bb=(px_int)(blend->hdr_B*1000);
+				px_int Ab=(px_int)(blend->alpha*128);
+				px_int Rb=(px_int)(blend->hdr_R*128);
+				px_int Gb=(px_int)(blend->hdr_G*128);
+				px_int Bb=(px_int)(blend->hdr_B*128);
 
-				bA=(px_int)(clr._argb.a*Ab/1000);
-				bR=(px_int)(clr._argb.r*Rb/1000);
-				bG=(px_int)(clr._argb.g*Gb/1000);
-				bB=(px_int)(clr._argb.b*Bb/1000);
+				bA=(px_int)(clr._argb.a*Ab)>>7;
+				bR=(px_int)(clr._argb.r*Rb)>>7;
+				bG=(px_int)(clr._argb.g*Gb)>>7;
+				bB=(px_int)(clr._argb.b*Bb)>>7;
 
 				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
 				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);
@@ -1108,10 +1182,10 @@ px_void PX_TextureRenderMask(px_surface *psurface,px_texture *mask_tex,px_textur
 	
 	if (blend)
 	{	
-		px_int Ab=(px_int)(blend->alpha*1000);
-		px_int Rb=(px_int)(blend->hdr_R*1000);
-		px_int Gb=(px_int)(blend->hdr_G*1000);
-		px_int Bb=(px_int)(blend->hdr_B*1000);
+		px_int Ab=(px_int)(blend->alpha*128);
+		px_int Rb=(px_int)(blend->hdr_R*128);
+		px_int Gb=(px_int)(blend->hdr_G*128);
+		px_int Bb=(px_int)(blend->hdr_B*128);
 
 		for (j=top;j<=bottom;j++)
 		{
@@ -1119,10 +1193,10 @@ px_void PX_TextureRenderMask(px_surface *psurface,px_texture *mask_tex,px_textur
 			{
 				clr=pmapdata[j*map_tex->width+i];
 				clr._argb.a=1*clr._argb.a*pmaskdata[j*mask_tex->width+i]._argb.a/255;
-				bA=(px_int)(clr._argb.a*Ab/1000);
-				bR=(px_int)(clr._argb.r*Rb/1000);
-				bG=(px_int)(clr._argb.g*Gb/1000);
-				bB=(px_int)(clr._argb.b*Bb/1000);
+				bA=(px_int)(clr._argb.a*Ab)>>7;
+				bR=(px_int)(clr._argb.r*Rb)>>7;
+				bG=(px_int)(clr._argb.g*Gb)>>7;
+				bB=(px_int)(clr._argb.b*Bb)>>7;
 
 				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
 				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);
@@ -1318,6 +1392,14 @@ px_bool PX_TextureCreateRotationAngle(px_memorypool *mp,px_texture *resTexture,p
 	return PX_TRUE;
 }
 
+px_bool PX_TextureCreateMirrior(px_memorypool* mp, px_texture* resTexture, PX_TEXTURERENDER_MIRRROR_MODE mirror, px_texture* out)
+{
+	if (PX_TextureCreate(mp, out, resTexture->width, resTexture->height))
+		return PX_FALSE;
+
+	PX_TextureRenderMirror( out, resTexture,0,0,PX_ALIGN_LEFTTOP,0, mirror);
+	return PX_TRUE;
+}
 px_bool PX_TextureRotationAngleToTexture(px_texture *resTexture,px_float Angle,px_texture *out)
 {
 	px_int height,width,i,j,resHeight,resWidth;
@@ -1498,6 +1580,197 @@ px_int PX_TextureGetRenderRange(px_texture* tex, px_int x, px_int y, px_int clip
 		render_range->height = bottom-top+1;
 		return render_range->width * render_range->height;
 	}
+}
+
+px_bool PX_TextureDiffZip(px_memorypool* mp, px_texture* srctex, px_texture* ziptex, px_memory* mem)
+{
+	//diff
+	px_int i, j;
+	px_memory enmem;
+	px_memory rle_compressed_data;
+	px_word* rle_expand_data;
+
+	if(srctex->width != ziptex->width || srctex->height != ziptex->height)
+	{
+		return PX_FALSE;
+	}
+	PX_MemoryInitialize(mp, &enmem);
+	PX_MemoryCat(&enmem, &srctex->width, sizeof(px_int));
+	PX_MemoryCat(&enmem, &srctex->height, sizeof(px_int));
+	for (i = 0; i < srctex->height; i++)
+	{
+		for (j = 0; j < srctex->width; j++)
+		{
+			px_byte c;
+			px_color *pc1=&PX_SURFACECOLOR(srctex, j, i);
+			px_color *pc2=&PX_SURFACECOLOR(ziptex, j, i);
+			c=pc2->_argb.a - pc1->_argb.a;
+			PX_MemoryCat(&enmem, &c,1);
+		}
+	}
+	for (i = 0; i < srctex->height; i++)
+	{
+		for (j = 0; j < srctex->width; j++)
+		{
+			px_byte c;
+			px_color* pc1 = &PX_SURFACECOLOR(srctex, j, i);
+			px_color* pc2 = &PX_SURFACECOLOR(ziptex, j, i);
+			c = pc2->_argb.r - pc1->_argb.r;
+			PX_MemoryCat(&enmem, &c, 1);
+		}
+	}
+	for (i = 0; i < srctex->height; i++)
+	{
+		for (j = 0; j < srctex->width; j++)
+		{
+			px_byte c;
+			px_color* pc1 = &PX_SURFACECOLOR(srctex, j, i);
+			px_color* pc2 = &PX_SURFACECOLOR(ziptex, j, i);
+			c = pc2->_argb.g - pc1->_argb.g;
+			PX_MemoryCat(&enmem, &c, 1);
+		}
+	}
+	for (i = 0; i < srctex->height; i++)
+	{
+		for (j = 0; j < srctex->width; j++)
+		{
+			px_byte c;
+			px_color* pc1 = &PX_SURFACECOLOR(srctex, j, i);
+			px_color* pc2 = &PX_SURFACECOLOR(ziptex, j, i);
+			c = pc2->_argb.b - pc1->_argb.b;
+			PX_MemoryCat(&enmem, &c, 1);
+		}
+	}
+
+	PX_MemoryInitialize(mp, &rle_compressed_data);
+	PX_ArleCompress(enmem.buffer, enmem.usedsize,&rle_compressed_data);
+	PX_MemoryFree(&enmem);
+	rle_expand_data = (px_word*)MP_Malloc(mp, 16384 *sizeof(px_word));
+	if (!rle_expand_data)
+	{
+		PX_MemoryFree(&rle_compressed_data);
+		return PX_FALSE;
+	}
+
+	
+
+	j = 0;
+	for(i=0;i<rle_compressed_data.usedsize;i++)
+	{
+		rle_expand_data[j] = rle_compressed_data.buffer[i];
+		j++;
+		if (j % 16383 == 0)
+		{
+			rle_expand_data[j] = 256;//end of data
+			if (!PX_HuffmanDeflateCodeData((px_word*)rle_expand_data, 16384, mem, PX_HUFFMAN_TREE_TYPE_DYNAMIC))
+			{
+				MP_Free(mp, rle_expand_data);
+				return PX_FALSE;
+			}
+		    PX_MemoryAlignBits(mem);
+			j = 0;
+		}
+	}
+	rle_expand_data[j] = 256;//end of data
+	if (!PX_HuffmanDeflateCodeData((px_word*)rle_expand_data, j+1, mem, PX_HUFFMAN_TREE_TYPE_DYNAMIC))
+	{
+		MP_Free(mp, rle_expand_data);
+		return PX_FALSE;
+	}
+
+	PX_MemoryFree(&rle_compressed_data);
+	MP_Free(mp, rle_expand_data);
+
+
+	return PX_TRUE;
+}
+
+px_bool PX_TextureDiffUnzip(px_memorypool* mp,px_void *buffer,px_int size, px_texture* srctex, px_texture* tex)
+{
+	px_int x, y,i;
+	px_int width, height;
+	px_uint offset=0,pos=0;
+	px_memory inflate_mem;
+	px_memory inflate_mem2;
+	px_byte *pchannel;
+	
+	PX_MemoryInitialize(mp, &inflate_mem);
+	while ((px_int)offset <size)
+	{
+		pos = 0;
+		if (!PX_HuffmanInflateCodeData((px_byte*)buffer+ offset, &pos, size, &inflate_mem, PX_HUFFMAN_TREE_TYPE_DYNAMIC))
+		{
+			PX_MemoryFree(&inflate_mem);
+			return PX_FALSE;
+		}
+		offset += (pos + 7) / 8;
+	}
+	
+	for ( i = 0; i < inflate_mem.usedsize/2; i++)
+	{
+		inflate_mem.buffer[i] = (px_byte)inflate_mem.buffer[i*2];
+	}
+	PX_MemoryRemove(&inflate_mem, inflate_mem.usedsize/2, inflate_mem.usedsize-1);
+	
+
+	PX_MemoryInitialize(mp, &inflate_mem2);
+	PX_ArleDecompress(inflate_mem.buffer, inflate_mem.usedsize,&inflate_mem2);
+	PX_MemoryFree(&inflate_mem);
+
+
+
+	width = *(px_int*)inflate_mem2.buffer;
+	height = *(px_int*)(inflate_mem2.buffer+sizeof(px_int));
+
+	if (tex->MP)
+	{
+		if (width != tex->width || height != tex->height)
+		{
+			PX_TextureFree(tex);
+			if (!PX_TextureCreate(mp, tex, width, height))
+			{
+				PX_MemoryFree(&inflate_mem2);
+				return PX_FALSE;
+			}
+		}
+	}
+	else
+	{
+		if (!PX_TextureCreate(mp, tex, width, height))
+		{
+			PX_MemoryFree(&inflate_mem2);
+			return PX_FALSE;
+		}
+	}
+	
+	
+	pchannel= (px_byte*)(inflate_mem2.buffer + sizeof(px_int) * 2);
+	for ( y = 0; y < tex->height; y++)
+	{
+		for (x = 0; x < tex->width; x++)
+		{
+			px_byte a,r,g,b;
+			px_byte ra=0, rr=0, rg=0, rb=0;
+			px_color* pc = &PX_SURFACECOLOR(tex, x, y);
+			a = pchannel[y*tex->width + x];
+			r = pchannel[tex->width*tex->height + y*tex->width + x];
+			g = pchannel[tex->width*tex->height*2 + y*tex->width + x];
+			b = pchannel[tex->width*tex->height*3 + y*tex->width + x];
+			if (srctex)
+			{
+				ra = srctex->surfaceBuffer[y * srctex->width + x]._argb.a;
+				rr = srctex->surfaceBuffer[y * srctex->width + x]._argb.r;
+				rg = srctex->surfaceBuffer[y * srctex->width + x]._argb.g;
+				rb = srctex->surfaceBuffer[y * srctex->width + x]._argb.b;
+			}
+			pc->_argb.a = a + ra;
+			pc->_argb.r = r + rr;
+			pc->_argb.g = g + rg;
+			pc->_argb.b = b + rb;
+		}
+	}
+	PX_MemoryFree(&inflate_mem2);
+	return PX_TRUE;
 }
 
 
@@ -1691,10 +1964,10 @@ px_void PX_TextureRenderEx(px_surface *psurface,px_texture *resTexture,px_int x,
 
 	if (blend)
 	{	
-		px_int Ab=(px_int)(blend->alpha*1000);
-		px_int Rb=(px_int)(blend->hdr_R*1000);
-		px_int Gb=(px_int)(blend->hdr_G*1000);
-		px_int Bb=(px_int)(blend->hdr_B*1000);
+		px_int Ab=(px_int)(blend->alpha*128);
+		px_int Rb=(px_int)(blend->hdr_R*128);
+		px_int Gb=(px_int)(blend->hdr_G*128);
+		px_int Bb=(px_int)(blend->hdr_B*128);
 
 		for (j=top;j<=bottom;j++)
 		{
@@ -1717,10 +1990,10 @@ px_void PX_TextureRenderEx(px_surface *psurface,px_texture *resTexture,px_int x,
 				}
 
 				clr=PX_SURFACECOLOR(resTexture,mapX,mapY);
-				bA=(px_int)(clr._argb.a*Ab/1000);
-				bR=(px_int)(clr._argb.r*Rb/1000);
-				bG=(px_int)(clr._argb.g*Gb/1000);
-				bB=(px_int)(clr._argb.b*Bb/1000);
+				bA=(px_int)(clr._argb.a*Ab)>>7;
+				bR=(px_int)(clr._argb.r*Rb)>>7;
+				bG=(px_int)(clr._argb.g*Gb)>>7;
+				bB=(px_int)(clr._argb.b*Bb)>>7;
 
 				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
 				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);
@@ -1920,10 +2193,10 @@ px_void PX_TextureRenderMaskEx(px_surface *psurface,px_texture *mask_tex,px_text
 
 	if (blend)
 	{	
-		px_int Ab=(px_int)(blend->alpha*1000);
-		px_int Rb=(px_int)(blend->hdr_R*1000);
-		px_int Gb=(px_int)(blend->hdr_G*1000);
-		px_int Bb=(px_int)(blend->hdr_B*1000);
+		px_int Ab=(px_int)(blend->alpha*128);
+		px_int Rb=(px_int)(blend->hdr_R*128);
+		px_int Gb=(px_int)(blend->hdr_G*128);
+		px_int Bb=(px_int)(blend->hdr_B*128);
 
 		for (j=top;j<=bottom;j++)
 		{
@@ -1948,10 +2221,10 @@ px_void PX_TextureRenderMaskEx(px_surface *psurface,px_texture *mask_tex,px_text
 				clr=pmapdata[j*map_tex->width+i];
 				clr._argb.a=1*clr._argb.a*pmaskdata[j*mask_tex->width+i]._argb.a/255;
 
-				bA=(px_int)(clr._argb.a*Ab/1000);
-				bR=(px_int)(clr._argb.r*Rb/1000);
-				bG=(px_int)(clr._argb.g*Gb/1000);
-				bB=(px_int)(clr._argb.b*Bb/1000);
+				bA=(px_int)(clr._argb.a*Ab)>>7;
+				bR=(px_int)(clr._argb.r*Rb)>>7;
+				bG=(px_int)(clr._argb.g*Gb)>>7;
+				bB=(px_int)(clr._argb.b*Bb)>>7;
 
 				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
 				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);
@@ -2229,20 +2502,20 @@ px_void PX_TextureRegionRender(px_surface *psurface,px_texture *resTexture,px_in
 
 	if (blend)
 	{	
-		px_int Ab=(px_int)(blend->alpha*1000);
-		px_int Rb=(px_int)(blend->hdr_R*1000);
-		px_int Gb=(px_int)(blend->hdr_G*1000);
-		px_int Bb=(px_int)(blend->hdr_B*1000);
+		px_int Ab=(px_int)(blend->alpha*128);
+		px_int Rb=(px_int)(blend->hdr_R*128);
+		px_int Gb=(px_int)(blend->hdr_G*128);
+		px_int Bb=(px_int)(blend->hdr_B*128);
 
 		for (j=top;j<=bottom;j++)
 		{
 			for (i=left;i<=right;i++)
 			{
 				clr=pdata[(j+oft_top)*resTexture->width+i+oft_left];
-				bA=(px_int)(clr._argb.a*Ab/1000);
-				bR=(px_int)(clr._argb.r*Rb/1000);
-				bG=(px_int)(clr._argb.g*Gb/1000);
-				bB=(px_int)(clr._argb.b*Bb/1000);
+				bA=(px_int)(clr._argb.a*Ab)>>7;
+				bR=(px_int)(clr._argb.r*Rb)>>7;
+				bG=(px_int)(clr._argb.g*Gb)>>7;
+				bB=(px_int)(clr._argb.b*Bb)>>7;
 
 				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
 				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);
@@ -2366,20 +2639,20 @@ px_void PX_TextureRegionCopy(px_surface *psurface,px_texture *resTexture,px_int 
 
 	if (blend)
 	{	
-		px_int Ab=(px_int)(blend->alpha*1000);
-		px_int Rb=(px_int)(blend->hdr_R*1000);
-		px_int Gb=(px_int)(blend->hdr_G*1000);
-		px_int Bb=(px_int)(blend->hdr_B*1000);
+		px_int Ab=(px_int)(blend->alpha*128);
+		px_int Rb=(px_int)(blend->hdr_R*128);
+		px_int Gb=(px_int)(blend->hdr_G*128);
+		px_int Bb=(px_int)(blend->hdr_B*128);
 
 		for (j=top;j<=bottom;j++)
 		{
 			for (i=left;i<=right;i++)
 			{
 				clr=pdata[(j+oft_top)*resTexture->width+i+oft_left];
-				bA=(px_int)(clr._argb.a*Ab/1000);
-				bR=(px_int)(clr._argb.r*Rb/1000);
-				bG=(px_int)(clr._argb.g*Gb/1000);
-				bB=(px_int)(clr._argb.b*Bb/1000);
+				bA=(px_int)(clr._argb.a*Ab)>>7;
+				bR=(px_int)(clr._argb.r*Rb)>>7;
+				bG=(px_int)(clr._argb.g*Gb)>>7;
+				bB=(px_int)(clr._argb.b*Bb)>>7;
 
 				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
 				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);
@@ -3058,10 +3331,10 @@ px_void PX_TextureRenderEx_sincos(px_surface *psurface,px_texture *resTexture,px
 
 	if (blend)
 	{	
-		px_int Ab=(px_int)(blend->alpha*1000);
-		px_int Rb=(px_int)(blend->hdr_R*1000);
-		px_int Gb=(px_int)(blend->hdr_G*1000);
-		px_int Bb=(px_int)(blend->hdr_B*1000);
+		px_int Ab=(px_int)(blend->alpha*128);
+		px_int Rb=(px_int)(blend->hdr_R*128);
+		px_int Gb=(px_int)(blend->hdr_G*128);
+		px_int Bb=(px_int)(blend->hdr_B*128);
 
 		for (j=top;j<=bottom;j++)
 		{
@@ -3084,10 +3357,10 @@ px_void PX_TextureRenderEx_sincos(px_surface *psurface,px_texture *resTexture,px
 				}
 
 				clr=PX_SURFACECOLOR(resTexture,mapX,mapY);
-				bA=(px_int)(clr._argb.a*Ab/1000);
-				bR=(px_int)(clr._argb.r*Rb/1000);
-				bG=(px_int)(clr._argb.g*Gb/1000);
-				bB=(px_int)(clr._argb.b*Bb/1000);
+				bA=(px_int)(clr._argb.a*Ab)>>7;
+				bR=(px_int)(clr._argb.r*Rb)>>7;
+				bG=(px_int)(clr._argb.g*Gb)>>7;
+				bB=(px_int)(clr._argb.b*Bb)>>7;
 
 				clr._argb.a = (px_uchar)(((bA > 255) * 0xff) | bA);
 				clr._argb.r = (px_uchar)(((bR > 255) * 0xff) | bR);

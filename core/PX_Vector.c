@@ -203,6 +203,7 @@ px_bool PX_VectorCheckIndex(px_vector *vec,px_int index)
 	return PX_TRUE;
 }
 
+
 px_bool PX_VectorAllocSize(px_vector *vec,px_int size)
 {
 	if (size<0||size<vec->size)

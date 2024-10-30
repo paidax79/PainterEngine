@@ -1,12 +1,13 @@
 #include "PX_Object_Image.h"
 
-px_void PX_Object_ImageRender(px_surface *psurface, PX_Object *pObject,px_uint elapsed)
+PX_OBJECT_RENDER_FUNCTION(PX_Object_ImageRender)
 {
 	PX_Object_Image *pImage=PX_Object_GetImage(pObject);
 	px_int x,y,w,h;
 	PX_SurfaceLimitInfo limitInfo;
 	px_float inheritX,inheritY;
 	px_texture *prenderTexture=PX_NULL;
+	PX_TEXTURERENDER_BLEND blend = {0}, * pblend;
 	if (!pImage->pTexture&&!pImage->pgif)
 	{
 		return;
@@ -14,7 +15,7 @@ px_void PX_Object_ImageRender(px_surface *psurface, PX_Object *pObject,px_uint e
 
 	if (pImage->pgif)
 	{
-		PX_GifUpdate(pImage->pgif, elapsed);
+		PX_GifUpdate(pImage->pgif, (px_dword)(elapsed*pImage->gif_speed));
 		prenderTexture=PX_GifGetTexture(pImage->pgif);
 	}
 
@@ -33,16 +34,32 @@ px_void PX_Object_ImageRender(px_surface *psurface, PX_Object *pObject,px_uint e
 	limitInfo=PX_SurfaceGetLimit(psurface);
 	PX_SurfaceSetLimit(psurface,x,y,x+w-1,y+h-1);
 
+	if (pImage->alpha!=1.0f)
+	{
+		blend.alpha=pImage->alpha;
+		blend.hdr_B = 1;
+		blend.hdr_G = 1;
+		blend.hdr_R = 1;
+		pblend=&blend;
+	}
+	else
+	{
+		pblend = PX_NULL;
+
+	}
+
 	switch(pImage->Align)
 	{
 	case PX_ALIGN_LEFTTOP:
 		{
 			if (pImage!=PX_NULL)
 			{
+				
+
 				if(pImage->pmask)
-					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x,y,PX_ALIGN_LEFTTOP,PX_NULL);
+					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x,y,PX_ALIGN_LEFTTOP, pblend);
 				else
-					PX_TextureRender(psurface,prenderTexture,x,y,PX_ALIGN_LEFTTOP,PX_NULL);
+					PX_TextureRender(psurface,prenderTexture,x,y,PX_ALIGN_LEFTTOP, pblend);
 			}
 		}
 		break;
@@ -51,9 +68,9 @@ px_void PX_Object_ImageRender(px_surface *psurface, PX_Object *pObject,px_uint e
 			if (pImage!=PX_NULL)
 			{
 				if(pImage->pmask)
-					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x,y+h/2,PX_ALIGN_LEFTMID,PX_NULL);
+					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x,y+h/2,PX_ALIGN_LEFTMID, pblend);
 				else
-					PX_TextureRender(psurface,prenderTexture,x,y+h/2,PX_ALIGN_LEFTMID,PX_NULL);
+					PX_TextureRender(psurface,prenderTexture,x,y+h/2,PX_ALIGN_LEFTMID, pblend);
 			}
 		}
 		break;
@@ -62,9 +79,9 @@ px_void PX_Object_ImageRender(px_surface *psurface, PX_Object *pObject,px_uint e
 			if (pImage!=PX_NULL)
 			{
 				if(pImage->pmask)
-					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x,y+h,PX_ALIGN_LEFTBOTTOM,PX_NULL);
+					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x,y+h,PX_ALIGN_LEFTBOTTOM, pblend);
 				else
-					PX_TextureRender(psurface,prenderTexture,x,y+h,PX_ALIGN_LEFTBOTTOM,PX_NULL);
+					PX_TextureRender(psurface,prenderTexture,x,y+h,PX_ALIGN_LEFTBOTTOM, pblend);
 			}
 		}
 		break;
@@ -73,9 +90,9 @@ px_void PX_Object_ImageRender(px_surface *psurface, PX_Object *pObject,px_uint e
 			if (pImage!=PX_NULL)
 			{
 				if(pImage->pmask)
-					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x+w/2,y,PX_ALIGN_MIDTOP,PX_NULL);
+					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x+w/2,y,PX_ALIGN_MIDTOP, pblend);
 				else
-					PX_TextureRender(psurface,prenderTexture,x+w/2,y,PX_ALIGN_MIDTOP,PX_NULL);
+					PX_TextureRender(psurface,prenderTexture,x+w/2,y,PX_ALIGN_MIDTOP, pblend);
 			}
 		}
 		break;
@@ -84,9 +101,9 @@ px_void PX_Object_ImageRender(px_surface *psurface, PX_Object *pObject,px_uint e
 			if (pImage!=PX_NULL)
 			{
 				if(pImage->pmask)
-					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x+w/2,y+h/2,PX_ALIGN_CENTER,PX_NULL);
+					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x+w/2,y+h/2,PX_ALIGN_CENTER, pblend);
 				else
-					PX_TextureRender(psurface,prenderTexture,x+w/2,y+h/2,PX_ALIGN_CENTER,PX_NULL);
+					PX_TextureRender(psurface,prenderTexture,x+w/2,y+h/2,PX_ALIGN_CENTER, pblend);
 			}
 		}
 		break;
@@ -95,9 +112,9 @@ px_void PX_Object_ImageRender(px_surface *psurface, PX_Object *pObject,px_uint e
 			if (pImage!=PX_NULL)
 			{
 				if(pImage->pmask)
-					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x+w/2,y+h,PX_ALIGN_MIDBOTTOM,PX_NULL);
+					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x+w/2,y+h,PX_ALIGN_MIDBOTTOM, pblend);
 				else
-					PX_TextureRender(psurface,prenderTexture,x+w/2,y+h,PX_ALIGN_MIDBOTTOM,PX_NULL);
+					PX_TextureRender(psurface,prenderTexture,x+w/2,y+h,PX_ALIGN_MIDBOTTOM, pblend);
 			}
 		}
 		break;
@@ -106,9 +123,9 @@ px_void PX_Object_ImageRender(px_surface *psurface, PX_Object *pObject,px_uint e
 			if (pImage!=PX_NULL)
 			{
 				if(pImage->pmask)
-					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x+w,y,PX_ALIGN_RIGHTTOP,PX_NULL);
+					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x+w,y,PX_ALIGN_RIGHTTOP, pblend);
 				else
-					PX_TextureRender(psurface,prenderTexture,x+w,y,PX_ALIGN_RIGHTTOP,PX_NULL);
+					PX_TextureRender(psurface,prenderTexture,x+w,y,PX_ALIGN_RIGHTTOP, pblend);
 			}
 		}
 		break;
@@ -117,9 +134,9 @@ px_void PX_Object_ImageRender(px_surface *psurface, PX_Object *pObject,px_uint e
 			if (pImage!=PX_NULL)
 			{
 				if(pImage->pmask)
-					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x+w,y+h/2,PX_ALIGN_RIGHTMID,PX_NULL);
+					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x+w,y+h/2,PX_ALIGN_RIGHTMID, pblend);
 				else
-					PX_TextureRender(psurface,prenderTexture,x+w,y+h/2,PX_ALIGN_RIGHTMID,PX_NULL);
+					PX_TextureRender(psurface,prenderTexture,x+w,y+h/2,PX_ALIGN_RIGHTMID, pblend);
 			}
 		}
 		break;
@@ -128,9 +145,9 @@ px_void PX_Object_ImageRender(px_surface *psurface, PX_Object *pObject,px_uint e
 			if (pImage!=PX_NULL)
 			{
 				if(pImage->pmask)
-					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x+w,y+h,PX_ALIGN_RIGHTBOTTOM,PX_NULL);
+					PX_TextureRenderMask(psurface,pImage->pmask,prenderTexture,x+w,y+h,PX_ALIGN_RIGHTBOTTOM, pblend);
 				else
-					PX_TextureRender(psurface,prenderTexture,x+w,y+h,PX_ALIGN_RIGHTBOTTOM,PX_NULL);
+					PX_TextureRender(psurface,prenderTexture,x+w,y+h,PX_ALIGN_RIGHTBOTTOM, pblend);
 			}
 		}
 		break;
@@ -140,9 +157,9 @@ px_void PX_Object_ImageRender(px_surface *psurface, PX_Object *pObject,px_uint e
 
 }
 
-px_void PX_Object_ImageFree( PX_Object *pBitmap )
+PX_OBJECT_FREE_FUNCTION(PX_Object_ImageFree)
 {
-	PX_Object_Image *pImage=PX_Object_GetImage(pBitmap);
+	PX_Object_Image *pImage=PX_Object_GetImage(pObject);
 	if (pImage->texture.MP)
 	{
 		PX_TextureFree(&pImage->texture);
@@ -152,43 +169,47 @@ px_void PX_Object_ImageFree( PX_Object *pBitmap )
 		PX_GifFree(&pImage->gif);
 	}
 }
+PX_Object* PX_Object_ImageAttachObject( PX_Object* pObject,px_int attachIndex, px_texture* ptex)
+{
+	px_memorypool* mp=pObject->mp;
+	PX_Object_Image* pImage;
+	PX_ASSERTIF(pObject == PX_NULL);
+	PX_ASSERTIF(attachIndex < 0 || attachIndex >= PX_COUNTOF(pObject->pObjectDesc));
+	PX_ASSERTIF(pObject->pObjectDesc[attachIndex] != PX_NULL);
+	pImage = (PX_Object_Image*)PX_ObjectCreateDesc(pObject, attachIndex, PX_OBJECT_TYPE_IMAGE, 0, PX_Object_ImageRender, PX_Object_ImageFree, 0, sizeof(PX_Object_Image));
+	PX_ASSERTIF(pImage == PX_NULL);
+
+	pImage->pTexture = ptex;
+	pImage->pmask = PX_NULL;
+	pImage->Align = PX_ALIGN_CENTER;
+	pImage->alpha = 1.0f;
+	pImage->gif_speed = 1.0f;
+	return pObject;
+}
 
 PX_Object * PX_Object_ImageCreate(px_memorypool *mp,PX_Object *Parent,px_int x,px_int y,px_int width,px_int height,px_texture *ptex )
 {
 	PX_Object *pObject;
-	PX_Object_Image *pImage=(PX_Object_Image *)MP_Malloc(mp,sizeof(PX_Object_Image));
-	if (pImage==PX_NULL)
+	
+	pObject=PX_ObjectCreate(mp,Parent,(px_float)x,(px_float)y,0,(px_float)width,(px_float)height,0);
+	if (pObject ==PX_NULL)
 	{
 		return PX_NULL;
 	}
-	PX_memset(pImage, 0, sizeof(PX_Object_Image));
-	pObject=PX_ObjectCreate(mp,Parent,(px_float)x,(px_float)y,0,(px_float)width,(px_float)height,0);
-	if (pObject==PX_NULL)
+	if (!PX_Object_ImageAttachObject(pObject,0,ptex))
 	{
-		MP_Free(pObject->mp,pImage);
+		PX_ObjectDelete(pObject);
 		return PX_NULL;
 	}
 
-	pObject->pObjectDesc=pImage;
-	pObject->Enabled=PX_TRUE;
-	pObject->Visible=PX_TRUE;
-	pObject->Type=PX_OBJECT_TYPE_IMAGE;
-	pObject->ReceiveEvents=PX_TRUE;
-	pObject->Func_ObjectFree=PX_Object_ImageFree;
-	pObject->Func_ObjectRender=PX_Object_ImageRender;
-	pImage->pTexture=ptex;
-	pImage->pmask=PX_NULL;
-	pImage->Align=PX_ALIGN_CENTER;
+	
 	return pObject;
 }
 
 
 PX_Object_Image * PX_Object_GetImage( PX_Object *pObject )
 {
-	if(pObject->Type==PX_OBJECT_TYPE_IMAGE)
-		return (PX_Object_Image *)pObject->pObjectDesc;
-	else
-		return PX_NULL;
+	return (PX_Object_Image *)PX_ObjectGetDescByType(pObject,PX_OBJECT_TYPE_IMAGE);	
 }
 
 px_void PX_Object_ImageSetAlign( PX_Object *pImage,PX_ALIGN Align)
@@ -224,6 +245,9 @@ px_void PX_Object_ImageSetTexture(PX_Object *pObject,px_texture *pTex)
 px_void PX_Object_ImageSetGif(PX_Object* pObject, px_gif* pgif)
 {
 	PX_Object_Image* pImg = PX_Object_GetImage(pObject);
+	PX_ASSERTIF(pImg == PX_NULL);
+	PX_ASSERTIF(pgif == PX_NULL);
+	PX_ASSERTIF(pgif->mp==PX_NULL);
 	if (pImg)
 	{
 		pImg->pgif = pgif;
@@ -240,7 +264,7 @@ px_void PX_Object_ImageAutoSize(PX_Object* pObject)
 		{
 			PX_ObjectSetSize(pObject, pImg->pTexture->width*1.0f, pImg->pTexture->height*1.0f, 0);
 		}
-	else if (pImg->pgif)
+		else if (pImg->pgif)
 		{
 			PX_ObjectSetSize(pObject, pImg->pgif->width*1.0f, pImg->pgif->height*1.0f, 0);
 		}
@@ -287,6 +311,24 @@ px_void PX_Object_ImageFreeWithTexture(PX_Object *pBitmap)
 	if (pImage)
 	{
 		PX_TextureFree(pImage->pTexture);
+	}
+}
+
+px_void PX_Object_ImageSetAlpha(PX_Object* pObject, px_float alpha)
+{
+	PX_Object_Image* pImg = PX_Object_GetImage(pObject);
+	if (pImg)
+	{
+		pImg->alpha = alpha;
+	}
+}
+
+px_void PX_Object_ImageSetGifSpeed(PX_Object* pObject, px_float _1x)
+{
+	PX_Object_Image* pImg = PX_Object_GetImage(pObject);
+	if (pImg)
+	{
+		pImg->gif_speed = _1x;
 	}
 }
 
